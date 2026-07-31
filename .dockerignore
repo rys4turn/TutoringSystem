@@ -1,0 +1,16 @@
+node_modules
+venv
+__pycache__
+*.pyc
+.git
+frontend/node_modules
+frontend/dist
+backend/venv
+backend/build
+backend/dist
+backend/__pycache__
+backend/app/__pycache__
+backend/tutoring.db
+*.exe
+*.spec
+*.bat
