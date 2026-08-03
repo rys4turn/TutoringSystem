@@ -94,3 +94,180 @@ class AdjustmentOut(BaseModel):
     adjustment_type: str; reason: str
     course: Optional[CourseOut] = None
     model_config = {"from_attributes": True}
+
+
+# Score Records
+EXAM_TYPES = ["school_exam", "quiz", "entry_test"]
+
+class ScoreRecordCreate(BaseModel):
+    student_id: int
+    subject_id: int
+    course_id: Optional[int] = None
+    exam_type: str = "quiz"
+    exam_name: str
+    score: float
+    max_score: float = 100
+    exam_date: date
+    notes: str = ""
+
+class ScoreRecordUpdate(BaseModel):
+    student_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    course_id: Optional[int] = None
+    exam_type: Optional[str] = None
+    exam_name: Optional[str] = None
+    score: Optional[float] = None
+    max_score: Optional[float] = None
+    exam_date: Optional[date] = None
+    notes: Optional[str] = None
+
+class ScoreRecordOut(BaseModel):
+    id: int
+    student_id: int
+    subject_id: int
+    course_id: Optional[int] = None
+    exam_type: str
+    exam_name: str
+    score: float
+    max_score: float
+    exam_date: date
+    notes: str
+    rate: float = 0.0
+    student: Optional[StudentOut] = None
+    subject: Optional[SubjectOut] = None
+    course: Optional[CourseOut] = None
+    model_config = {"from_attributes": True}
+
+
+# Attendance analysis
+class AttendanceSummary(BaseModel):
+    total: int = 0
+    present: int = 0
+    late: int = 0
+    absent: int = 0
+    leave: int = 0
+    rate: float = 0.0
+
+class StudentAttendanceStat(BaseModel):
+    student: StudentOut
+    total: int = 0
+    present: int = 0
+    late: int = 0
+    absent: int = 0
+    leave: int = 0
+    rate: float = 0.0
+
+class SubjectAttendanceStat(BaseModel):
+    subject_id: int
+    subject: SubjectOut
+    total: int = 0
+    present: int = 0
+    late: int = 0
+    absent: int = 0
+    leave: int = 0
+    rate: float = 0.0
+
+class AttendanceTrendPoint(BaseModel):
+    date_val: date
+    total: int = 0
+    present: int = 0
+    late: int = 0
+    rate: float = 0.0
+
+class AttendanceAnalysisOut(BaseModel):
+    summary: AttendanceSummary
+    by_student: list[StudentAttendanceStat] = []
+    by_subject: list[SubjectAttendanceStat] = []
+    trend: list[AttendanceTrendPoint] = []
+
+
+# Score analysis
+class ScoreSummary(BaseModel):
+    total: int = 0
+    school_count: int = 0
+    quiz_count: int = 0
+    entry_count: int = 0
+    avg_score: float = 0.0
+    avg_rate: float = 0.0
+    best_rate: float = 0.0
+    lowest_rate: float = 0.0
+
+class SubjectScoreStat(BaseModel):
+    subject_id: int
+    subject: SubjectOut
+    total: int = 0
+    school_count: int = 0
+    quiz_count: int = 0
+    entry_count: int = 0
+    avg_score: float = 0.0
+    avg_rate: float = 0.0
+    best_rate: float = 0.0
+    lowest_rate: float = 0.0
+
+class StudentScoreStat(BaseModel):
+    student: StudentOut
+    total: int = 0
+    avg_score: float = 0.0
+    avg_rate: float = 0.0
+    school_avg_rate: float = 0.0
+    quiz_avg_rate: float = 0.0
+    entry_avg_rate: float = 0.0
+    best_rate: float = 0.0
+    lowest_rate: float = 0.0
+
+class ScoreTrendPoint(BaseModel):
+    id: int
+    exam_date: date
+    exam_name: str
+    exam_type: str
+    subject_id: int
+    subject: SubjectOut
+    score: float
+    max_score: float
+    rate: float
+
+class ScoreAnalysisOut(BaseModel):
+    summary: ScoreSummary
+    by_subject: list[SubjectScoreStat] = []
+    by_student: list[StudentScoreStat] = []
+    trend: list[ScoreTrendPoint] = []
+
+
+# Radar chart
+class RadarAxis(BaseModel):
+    subject_id: int
+    subject: str
+    record_count: int = 0
+    school_avg_rate: float = 0.0
+    quiz_avg_rate: float = 0.0
+    entry_avg_rate: float = 0.0
+    overall_avg_rate: float = 0.0
+    attendance_rate: float = 0.0
+
+class RadarOut(BaseModel):
+    student: StudentOut
+    axes: list[RadarAxis] = []
+
+
+# App settings / DeepSeek
+class SettingsOut(BaseModel):
+    deepseek_api_key_set: bool = False
+    deepseek_api_key_masked: str = ""
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com"
+
+class SettingsUpdate(BaseModel):
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+
+class AiReportRequest(BaseModel):
+    student_id: int
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+class AiReportOut(BaseModel):
+    student_id: int
+    report: str = ""
+    model: str = ""
+    generated_at: str = ""

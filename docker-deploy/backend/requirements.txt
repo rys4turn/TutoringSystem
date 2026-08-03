@@ -3,3 +3,4 @@ uvicorn==0.34.0
 sqlalchemy==2.0.36
 pydantic==2.10.3
 python-dateutil==2.9.0
+reportlab==5.0.0

@@ -103,3 +103,163 @@ export interface ScheduleAdjustment {
   reason: string;
   course: Course | null;
 }
+
+export interface ScoreRecord {
+  id: number;
+  student_id: number;
+  subject_id: number;
+  course_id: number | null;
+  exam_type: string;
+  exam_name: string;
+  score: number;
+  max_score: number;
+  exam_date: string;
+  notes: string;
+  rate: number;
+  student: Student | null;
+  subject: Subject | null;
+  course: Course | null;
+}
+
+export const EXAM_TYPES: Record<string, string> = { school_exam: "学校考试", quiz: "小测验", entry_test: "入班诊断" };
+
+export interface ScoreForm {
+  student_id: number;
+  subject_id: number;
+  course_id: number | null;
+  exam_type: string;
+  exam_name: string;
+  score: number;
+  max_score: number;
+  exam_date: string;
+  notes: string;
+}
+
+export interface AttendanceSummary {
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  leave: number;
+  rate: number;
+}
+
+export interface StudentAttendanceStat {
+  student: Student;
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  leave: number;
+  rate: number;
+}
+
+export interface SubjectAttendanceStat {
+  subject_id: number;
+  subject: Subject;
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  leave: number;
+  rate: number;
+}
+
+export interface AttendanceTrendPoint {
+  date_val: string;
+  total: number;
+  present: number;
+  late: number;
+  rate: number;
+}
+
+export interface AttendanceAnalysis {
+  summary: AttendanceSummary;
+  by_student: StudentAttendanceStat[];
+  by_subject: SubjectAttendanceStat[];
+  trend: AttendanceTrendPoint[];
+}
+
+export interface ScoreSummary {
+  total: number;
+  school_count: number;
+  quiz_count: number;
+  entry_count: number;
+  avg_score: number;
+  avg_rate: number;
+  best_rate: number;
+  lowest_rate: number;
+}
+
+export interface SubjectScoreStat {
+  subject_id: number;
+  subject: Subject;
+  total: number;
+  school_count: number;
+  quiz_count: number;
+  entry_count: number;
+  avg_score: number;
+  avg_rate: number;
+  best_rate: number;
+  lowest_rate: number;
+}
+
+export interface StudentScoreStat {
+  student: Student;
+  total: number;
+  avg_score: number;
+  avg_rate: number;
+  school_avg_rate: number;
+  quiz_avg_rate: number;
+  best_rate: number;
+  lowest_rate: number;
+}
+
+export interface ScoreTrendPoint {
+  id: number;
+  exam_date: string;
+  exam_name: string;
+  exam_type: string;
+  subject_id: number;
+  subject: Subject;
+  score: number;
+  max_score: number;
+  rate: number;
+}
+
+export interface ScoreAnalysis {
+  summary: ScoreSummary;
+  by_subject: SubjectScoreStat[];
+  by_student: StudentScoreStat[];
+  trend: ScoreTrendPoint[];
+}
+
+export interface RadarAxis {
+  subject_id: number;
+  subject: string;
+  record_count: number;
+  school_avg_rate: number;
+  quiz_avg_rate: number;
+  entry_avg_rate: number;
+  overall_avg_rate: number;
+  attendance_rate: number;
+}
+
+export interface RadarData {
+  student: Student;
+  axes: RadarAxis[];
+}
+
+export interface SettingsData {
+  deepseek_api_key_set: boolean;
+  deepseek_api_key_masked: string;
+  deepseek_model: string;
+  deepseek_base_url: string;
+}
+
+export interface AiReport {
+  student_id: number;
+  report: string;
+  model: string;
+  generated_at: string;
+}

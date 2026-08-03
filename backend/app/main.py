@@ -17,7 +17,7 @@ from .database import engine, Base, SessionLocal, get_db
 
 from . import models
 
-from .routers import rooms, students, teachers, subjects, courses, auth, attendance, adjustments
+from .routers import rooms, students, teachers, subjects, courses, auth, attendance, adjustments, scores, analysis, settings, demo
 
 
 
@@ -54,6 +54,18 @@ app.include_router(courses.router)
 app.include_router(attendance.router)
 
 app.include_router(adjustments.router)
+
+
+app.include_router(scores.router)
+
+
+app.include_router(analysis.router)
+
+
+app.include_router(settings.router)
+
+
+app.include_router(demo.router)
 
 
 

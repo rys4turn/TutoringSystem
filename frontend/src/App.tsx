@@ -3,10 +3,12 @@ import {
   BookOpen, Users, GraduationCap, Calendar, LayoutDashboard, Plus,
   Save, Trash2, X, Edit3, Clock, User, Presentation,
   AlertTriangle,
-  ClipboardCheck, RefreshCw, LogOut,
+  ClipboardCheck, RefreshCw, LogOut, BarChart3, FileText,
 } from "lucide-react";
 import { api } from "./api";
-import type { Course, Student, Subject, Teacher, AttendanceReport, ScheduleAdjustment } from "./types";
+import { ScoresView, AnalysisView } from "./Analytics";
+import { Modal } from "./Modal";
+import type { Course, Student, Subject, Teacher, ScheduleAdjustment, AttendanceAnalysis } from "./types";
 import { DAY_NAMES, TIME_SLOTS, GRADE_LEVELS, JUNIOR_GRADES, SENIOR_GRADES, COURSE_TYPES, ROOM_TYPES } from "./types";
 
 const TABS = [
@@ -17,6 +19,8 @@ const TABS = [
   { id: "courses", label: "课程管理", icon: BookOpen },
   { id: "attendance", label: "考勤管理", icon: ClipboardCheck },
   { id: "adjustments", label: "调课记录", icon: RefreshCw },
+  { id: "scores", label: "成绩管理", icon: FileText },
+  { id: "analysis", label: "数据分析", icon: BarChart3 },
 ] as const;
 
 const COURSE_COLORS = [
@@ -58,17 +62,6 @@ export default function App() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  useEffect(() => {
-    const handle = () => {
-      if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-        fetch("/shutdown", { method: "POST", keepalive: true });
-      }
-    };
-    window.addEventListener("beforeunload", handle);
-    return () => window.removeEventListener("beforeunload", handle);
-  }, []);
-
 
   if (!authChecked) return <div className="h-screen flex items-center justify-center bg-slate-100"><div className="animate-shimmer text-slate-400">加载中...</div></div>;
   if (!token) return <LoginPage onLogin={(t: string) => { localStorage.setItem("auth_token", t); setToken(t); }} />;
@@ -117,6 +110,8 @@ export default function App() {
         {tab === "courses" && <CoursesView courses={courses} students={students} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} />}
         {tab === "attendance" && <AttendanceView courses={courses} students={students} onRefresh={fetchAll} setError={setError} />}
         {tab === "adjustments" && <AdjustmentsView courses={courses} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} />}
+        {tab === "scores" && <ScoresView students={students} subjects={subjects} courses={courses} setError={setError} />}
+        {tab === "analysis" && <AnalysisView students={students} setError={setError} />}
         </div>
       </main>
     </div>
@@ -368,8 +363,8 @@ function StudentFormModal({ student, onClose, onSave, setError }: {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[420px] max-h-[80vh] overflow-auto animate-modal-in border border-white/30" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose}>
+      <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[420px] max-h-[80vh] overflow-auto animate-modal-in border border-white/30">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h3 className="font-semibold text-slate-800">{student ? "编辑学生" : "添加学生"}</h3>
           <button onClick={onClose} className="hover:rotate-90 transition-transform duration-200"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
@@ -408,7 +403,7 @@ function StudentFormModal({ student, onClose, onSave, setError }: {
           </button>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -446,8 +441,8 @@ function CourseFormModal({ course, students, subjects, teachers, courses: _cours
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[520px] max-h-[85vh] overflow-auto animate-modal-in border border-white/30" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose}>
+      <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[520px] max-h-[85vh] overflow-auto animate-modal-in border border-white/30">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h3 className="font-semibold text-slate-800">{course ? "编辑课程" : "添加课程"}</h3>
           <button onClick={onClose} className="hover:rotate-90 transition-transform duration-200"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
@@ -527,7 +522,7 @@ function CourseFormModal({ course, students, subjects, teachers, courses: _cours
           </button>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -599,7 +594,7 @@ function TeacherFormModal({ teacher, subjects, onClose, onSave, setError }: {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+    <Modal onClose={onClose}>
       <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[420px] max-h-[80vh] overflow-auto animate-modal-in border border-white/30" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h3 className="font-semibold text-slate-800">{teacher ? "编辑教师" : "添加教师"}</h3>
@@ -634,7 +629,7 @@ function TeacherFormModal({ teacher, subjects, onClose, onSave, setError }: {
           </button>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -719,9 +714,12 @@ function AttendanceView({ courses, students: _students, onRefresh: _onRefresh, s
   const [records, setRecords] = useState<Record<number, { status: string; notes: string }>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activeView, setActiveView] = useState<"checkin" | "report">("checkin");
-  const [reportData, setReportData] = useState<AttendanceReport[]>([]);
+  const [activeView, setActiveView] = useState<"checkin" | "analysis">("checkin");
+  const [attData, setAttData] = useState<AttendanceAnalysis | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [filterGradeLevel, setFilterGradeLevel] = useState("");
+  const [filterGrade, setFilterGrade] = useState("");
 
   const selectedCourse = courses.find((c) => c.id === courseId);
   const enrolledStudents = selectedCourse?.students || [];
@@ -737,9 +735,9 @@ function AttendanceView({ courses, students: _students, onRefresh: _onRefresh, s
   }, [courseId, dateVal]);
 
   useEffect(() => {
-    if (activeView === "report") {
+    if (activeView === "analysis") {
       setReportLoading(true);
-      api.attendance.report().then(setReportData).catch((e: any) => { setError(e.message || "统计加载失败"); }).finally(() => setReportLoading(false));
+        api.analysis.attendance().then(setAttData).catch((e: any) => { setError(e.message || "加载失败"); }).finally(() => setReportLoading(false));
     }
   }, [activeView]);
 
@@ -768,9 +766,10 @@ function AttendanceView({ courses, students: _students, onRefresh: _onRefresh, s
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-800">考勤管理</h2>
-        <div className="flex gap-2">
-          <button onClick={() => setActiveView("checkin")} className={`px-3 py-1.5 rounded-md text-sm ${activeView === "checkin" ? "bg-blue-600 text-white" : "bg-white border text-gray-600"}`}>打卡</button>
-          <button onClick={() => setActiveView("report")} className={`px-3 py-1.5 rounded-md text-sm ${activeView === "report" ? "bg-blue-600 text-white" : "bg-white border text-gray-600"}`}>统计</button>
+        <div className="flex gap-1">
+          {[ ["checkin","打卡"], ["analysis","考勤分析"] ].map(([id,label]) => (
+            <button key={id} onClick={() => setActiveView(id as any)} className={`px-3 py-1.5 rounded-md text-sm ${activeView===id ? "bg-blue-600 text-white" : "bg-white border text-gray-600"}`}>{label}</button>
+          ))}
         </div>
       </div>
       {activeView === "checkin" ? (
@@ -826,28 +825,31 @@ function AttendanceView({ courses, students: _students, onRefresh: _onRefresh, s
           )}
         </>
       ) : (
-        <div className="bg-white rounded-lg border overflow-hidden">
-          {reportLoading ? (
-            <div className="text-sm text-gray-400 py-8 text-center">加载中...</div>
-          ) : reportData.length === 0 ? (
-            <div className="text-sm text-gray-400 py-8 text-center">暂无考勤记录</div>
-          ) : (
-            <>
-              <div className="grid grid-cols-[1fr_100px_80px_80px] gap-2 px-4 py-2 bg-gray-50 border-b text-xs font-medium text-gray-500">
-                <div>学生</div><div>年级</div><div>出勤</div><div>缺勤</div>
-              </div>
-              {reportData.map((item) => (
-                <div key={item.student.id} className="grid grid-cols-[1fr_100px_80px_80px] gap-2 px-4 py-2.5 border-b text-sm items-center hover:bg-gray-50">
-                  <div className="font-medium text-slate-800">{item.student.name}</div>
-                  <div className="text-xs text-slate-400">{item.student.grade}</div>
-                  <div className="text-xs text-green-600 font-medium">{item.present_count} 次</div>
-                  <div className="text-xs text-red-500 font-medium">{item.absent_count} 次</div>
+        <div className="space-y-4">
+            <div className="flex gap-2 flex-wrap items-center">
+              <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="搜索学生姓名..." className="border rounded-md px-3 py-1.5 text-sm bg-white/70 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 min-w-[180px]" />
+              <select value={filterGradeLevel} onChange={e=>{setFilterGradeLevel(e.target.value);setFilterGrade("")}} className="border rounded-md px-2 py-1 text-sm bg-white/70 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"><option value="">全部学段</option><option value="初中">初中</option><option value="高中">高中</option></select>
+              {filterGradeLevel && <select value={filterGrade} onChange={e=>setFilterGrade(e.target.value)} className="border rounded-md px-2 py-1 text-sm bg-white/70 focus:outline-none focus:ring-2 focus:ring-indigo-400/50"><option value="">全部年级</option>{(filterGradeLevel==="初中"?["初一","初二","初三"]:["高一","高二","高三"]).map(g=><option key={g} value={g}>{g}</option>)}</select>}
+            </div>
+            {reportLoading && <div className="text-sm text-slate-400 py-8 text-center">加载中...</div>}
+            {!reportLoading && attData && (()=>{
+              const d=attData as any;
+              let students = d.by_student.filter((s:any)=>s.student);
+              if(searchText) students=students.filter((s:any)=>s.student.name.includes(searchText));
+              if(filterGradeLevel) students=students.filter((s:any)=>s.student.grade_level===filterGradeLevel);
+              if(filterGrade) students=students.filter((s:any)=>s.student.grade===filterGrade);
+              return <>
+                <div className="grid grid-cols-5 gap-3">
+                  {[{l:"总记录",v:d.summary.total,c:"text-slate-700"},{l:"出勤率",v:d.summary.rate+"%",c:"text-green-600"},{l:"出勤",v:d.summary.present,c:"text-green-600"},{l:"迟到",v:d.summary.late,c:"text-amber-600"},{l:"缺勤+请假",v:d.summary.absent+d.summary.leave,c:"text-red-500"}].map((x:any)=><div key={x.l} className="bg-white rounded-lg border p-3 text-center"><div className="text-xs text-slate-400">{x.l}</div><div className={`text-lg font-bold ${x.c}`}>{x.v}</div></div>)}
                 </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
+                <div className="bg-white rounded-lg border overflow-hidden">
+                  <div className="grid grid-cols-[1fr_80px_120px_80px_80px] gap-2 px-4 py-2 bg-slate-50/80 border-b text-xs font-medium text-slate-400"><div>学生</div><div>年级</div><div className="text-center">出勤率</div><div>出勤</div><div>缺+请</div></div>
+                  {students.map((s:any)=><div key={s.student.id} className="grid grid-cols-[1fr_80px_120px_80px_80px] gap-2 px-4 py-2 border-b last:border-0 text-sm items-center hover:bg-indigo-50/40"><div className="font-medium text-slate-800">{s.student.name}</div><div className="text-xs text-slate-400">{s.student.grade}</div><div className="flex items-center gap-2"><div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full rounded-full ${s.rate>=90?"bg-green-500":s.rate>=75?"bg-amber-500":"bg-red-500"}`} style={{width:`${s.rate}%`}}/></div><span className="text-xs font-medium w-12 text-right">{s.rate}%</span></div><div className="text-xs text-green-600">{s.present}</div><div className="text-xs text-red-500">{s.absent+s.leave}</div></div>)}
+                  {students.length===0 && <div className="text-xs text-slate-400 py-6 text-center">无匹配结果</div>}
+                </div>
+              </>})()}
+          </div>
+      ) }
     </div>
   );
 }
@@ -961,7 +963,7 @@ function AdjustmentFormModal({ adjustment, courses, onClose, onSave, setError }:
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
+    <Modal onClose={onClose}>
       <div className="bg-white/90 backdrop-blur-xl rounded-xl shadow-xl w-[480px] max-h-[85vh] overflow-auto animate-modal-in border border-white/30" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h3 className="font-semibold text-slate-800">添加课程调整</h3>
@@ -1019,6 +1021,6 @@ function AdjustmentFormModal({ adjustment, courses, onClose, onSave, setError }:
           </button>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }

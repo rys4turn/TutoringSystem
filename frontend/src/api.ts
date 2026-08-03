@@ -1,4 +1,4 @@
-import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment } from "./types";
+import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment, ScoreRecord, ScoreForm, AttendanceAnalysis, ScoreAnalysis, RadarData, SettingsData, AiReport } from "./types";
 
 const BASE = import.meta.env.DEV ? "/api" : "";
 
@@ -90,5 +90,73 @@ export const api = {
       request<ScheduleAdjustment>("/adjustments/", { method: "POST", body: JSON.stringify(data) }),
     update: (id: number, data: any) => request<ScheduleAdjustment>(`/adjustments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: number) => request<void>(`/adjustments/${id}`, { method: "DELETE" }),
+  },
+  scores: {
+    list: (params?: { student_id?: number; subject_id?: number; course_id?: number; exam_type?: string; date_from?: string; date_to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.student_id) sp.set("student_id", String(params.student_id));
+      if (params?.subject_id) sp.set("subject_id", String(params.subject_id));
+      if (params?.course_id) sp.set("course_id", String(params.course_id));
+      if (params?.exam_type) sp.set("exam_type", params.exam_type);
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      return request<ScoreRecord[]>(`/scores/?${sp}`);
+    },
+    create: (data: ScoreForm) => request<ScoreRecord>("/scores/", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: number, data: Partial<ScoreForm>) => request<ScoreRecord>(`/scores/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    delete: (id: number) => request<void>(`/scores/${id}`, { method: "DELETE" }),
+  },
+  analysis: {
+    attendance: (params?: { student_id?: number; course_id?: number; date_from?: string; date_to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.student_id) sp.set("student_id", String(params.student_id));
+      if (params?.course_id) sp.set("course_id", String(params.course_id));
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      return request<AttendanceAnalysis>(`/analysis/attendance?${sp}`);
+    },
+    scores: (params?: { student_id?: number; subject_id?: number; exam_type?: string; date_from?: string; date_to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.student_id) sp.set("student_id", String(params.student_id));
+      if (params?.subject_id) sp.set("subject_id", String(params.subject_id));
+      if (params?.exam_type) sp.set("exam_type", params.exam_type);
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      return request<ScoreAnalysis>(`/analysis/scores?${sp}`);
+    },
+    radar: (studentId: number) => request<RadarData>(`/analysis/radar/${studentId}`),
+    aiReport: (studentId: number, apiKey?: string, model?: string) =>
+      request<AiReport>("/analysis/ai-report", { method: "POST", body: JSON.stringify({ student_id: studentId, api_key: apiKey, model }) }),
+    latestAiReport: (studentId: number) => request<AiReport>(`/analysis/ai-report/${studentId}`),
+    aiReportPdf: async (studentId: number, studentName?: string) => {
+      const token = localStorage.getItem("auth_token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(BASE + `/analysis/ai-report/${studentId}/pdf`, { headers });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || "PDF 导出失败");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${studentName || "学生"}_学习分析报告.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+  },
+  settings: {
+    get: () => request<SettingsData>("/settings/"),
+    update: (data: { api_key?: string; model?: string; base_url?: string }) =>
+      request<SettingsData>("/settings/", { method: "PUT", body: JSON.stringify(data) }),
+    test: (apiKey?: string) =>
+      request<{ ok: boolean; models: string[] }>(`/settings/test${apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : ""}`, { method: "POST" }),
+  },
+  demo: {
+    status: () => request<{ students: number; courses: number; attendance: number; scores: number }>("/demo/status"),
+    seed: () => request<{ added_attendance: number; skipped_attendance: number; added_scores: number; skipped_scores: number }>("/demo/seed", { method: "POST" }),
   },
 };
