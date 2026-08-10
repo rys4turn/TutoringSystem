@@ -263,3 +263,99 @@ export interface AiReport {
   model: string;
   generated_at: string;
 }
+
+export interface DashboardData {
+  counts: {
+    students: number;
+    teachers: number;
+    courses: number;
+    subjects: number;
+    rooms: number;
+  };
+  today_date: string;
+  today_dow: number;
+  today_courses: Course[];
+  today_student_seats: number;
+  today_attendance: {
+    total: number;
+    present: number;
+    late: number;
+    absent: number;
+    leave: number;
+  };
+  weekly_load: number[];
+  slot_load: number[];
+  room_occupancy: {
+    room_id: number;
+    room_name: string;
+    room_type: string;
+    today_courses: number;
+    today_students: number;
+  }[];
+  attendance: AttendanceSummary;
+  scores: ScoreSummary;
+  subject_metrics: {
+    subject_id: number;
+    subject: string;
+    course_count: number;
+    student_count: number;
+    attendance_rate: number;
+    score_rate: number;
+  }[];
+  attendance_trend: AttendanceTrendPoint[];
+  score_trend: {
+    date_val: string;
+    avg_rate: number;
+    count: number;
+  }[];
+  adjustments: ScheduleAdjustment[];
+}
+
+export interface CourseHealthItem {
+  course_id: number;
+  name: string;
+  subject: string;
+  teacher: string;
+  room: string;
+  day: number;
+  slot: number;
+  students: number;
+  max_students: number;
+  attendance_rate: number;
+  score_rate: number;
+  utilization: number;
+  health_score: number;
+  risk_level: string;
+  signals: string[];
+  trend_delta: number;
+  teacher_load: number;
+}
+
+export interface RiskStudentItem {
+  student_id: number;
+  name: string;
+  grade: string;
+  grade_level: string;
+  attendance_rate: number;
+  score_rate: number;
+  trend_delta: number;
+  recent_absences: number;
+  courses: number;
+  risk_score: number;
+  risk_level: string;
+  signals: string[];
+}
+
+export interface AiInsightRequest {
+  insight_type: string;
+  question?: string;
+  history?: { role: string; content: string }[];
+  api_key?: string;
+  model?: string;
+}
+
+export interface AiInsightResult {
+  answer: string;
+  model: string;
+  generated_at: string;
+}

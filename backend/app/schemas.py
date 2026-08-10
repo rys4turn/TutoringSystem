@@ -271,3 +271,101 @@ class AiReportOut(BaseModel):
     report: str = ""
     model: str = ""
     generated_at: str = ""
+
+
+# Dashboard / AI insight
+class DashboardCounts(BaseModel):
+    students: int = 0
+    teachers: int = 0
+    courses: int = 0
+    subjects: int = 0
+    rooms: int = 0
+
+class TodayAttendanceOut(BaseModel):
+    total: int = 0
+    present: int = 0
+    late: int = 0
+    absent: int = 0
+    leave: int = 0
+
+class SubjectMetricOut(BaseModel):
+    subject_id: int
+    subject: str
+    course_count: int = 0
+    student_count: int = 0
+    attendance_rate: float = 0.0
+    score_rate: float = 0.0
+
+class ScoreTrendPointOut(BaseModel):
+    date_val: str
+    avg_rate: float = 0.0
+    count: int = 0
+
+class RoomOccupancyOut(BaseModel):
+    room_id: int
+    room_name: str
+    room_type: str = ""
+    today_courses: int = 0
+    today_students: int = 0
+
+class DashboardOut(BaseModel):
+    counts: DashboardCounts = DashboardCounts()
+    today_date: str = ""
+    today_dow: int = 0
+    today_courses: list[CourseOut] = []
+    today_student_seats: int = 0
+    today_attendance: TodayAttendanceOut = TodayAttendanceOut()
+    weekly_load: list[int] = []
+    slot_load: list[int] = []
+    room_occupancy: list[RoomOccupancyOut] = []
+    attendance: AttendanceSummary = AttendanceSummary()
+    scores: ScoreSummary = ScoreSummary()
+    subject_metrics: list[SubjectMetricOut] = []
+    attendance_trend: list[AttendanceTrendPoint] = []
+    score_trend: list[ScoreTrendPointOut] = []
+    adjustments: list[AdjustmentOut] = []
+
+class CourseHealthOut(BaseModel):
+    course_id: int
+    name: str
+    subject: str
+    teacher: str
+    room: str
+    day: int
+    slot: int
+    students: int = 0
+    max_students: int = 0
+    attendance_rate: float = 0.0
+    score_rate: float = 0.0
+    utilization: float = 0.0
+    health_score: float = 0.0
+    risk_level: str = "low"
+    signals: list[str] = []
+    trend_delta: float = 0.0
+    teacher_load: int = 0
+
+class RiskStudentOut(BaseModel):
+    student_id: int
+    name: str
+    grade: str
+    grade_level: str = ""
+    attendance_rate: float = 0.0
+    score_rate: float = 0.0
+    trend_delta: float = 0.0
+    recent_absences: int = 0
+    courses: int = 0
+    risk_score: float = 0.0
+    risk_level: str = "low"
+    signals: list[str] = []
+
+class AiInsightRequest(BaseModel):
+    insight_type: str = "overview"
+    question: str = ""
+    history: list[dict] = []
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+class AiInsightOut(BaseModel):
+    answer: str = ""
+    model: str = ""
+    generated_at: str = ""

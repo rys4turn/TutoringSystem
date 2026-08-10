@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
-from ..demo_data import seed_demo_data
+from ..demo_data import seed_demo_data, reset_demo_data
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -21,3 +21,8 @@ def demo_status(db: Session = Depends(get_db)):
 @router.post("/seed")
 def seed_demo(db: Session = Depends(get_db)):
     return seed_demo_data(db)
+
+
+@router.post("/reset")
+def reset_demo(db: Session = Depends(get_db)):
+    return reset_demo_data(db)

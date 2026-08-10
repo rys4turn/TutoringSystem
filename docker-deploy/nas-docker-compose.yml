@@ -2,7 +2,7 @@
 
 services:
   tutoring:
-    image: tutoring-system-tutoring:latest
+    image: tutoring-system:latest
     container_name: tutoring-system
     ports:
       - "5000:5000"

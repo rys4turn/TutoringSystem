@@ -1,4 +1,4 @@
-import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment, ScoreRecord, ScoreForm, AttendanceAnalysis, ScoreAnalysis, RadarData, SettingsData, AiReport } from "./types";
+import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment, ScoreRecord, ScoreForm, AttendanceAnalysis, ScoreAnalysis, RadarData, SettingsData, AiReport, DashboardData, CourseHealthItem, RiskStudentItem, AiInsightRequest, AiInsightResult } from "./types";
 
 const BASE = import.meta.env.DEV ? "/api" : "";
 
@@ -128,6 +128,11 @@ export const api = {
     aiReport: (studentId: number, apiKey?: string, model?: string) =>
       request<AiReport>("/analysis/ai-report", { method: "POST", body: JSON.stringify({ student_id: studentId, api_key: apiKey, model }) }),
     latestAiReport: (studentId: number) => request<AiReport>(`/analysis/ai-report/${studentId}`),
+    dashboard: () => request<DashboardData>("/analysis/dashboard"),
+    courseHealth: () => request<CourseHealthItem[]>("/analysis/course-health"),
+    risk: () => request<RiskStudentItem[]>("/analysis/risk"),
+    aiInsight: (data: AiInsightRequest) =>
+      request<AiInsightResult>("/analysis/ai-insight", { method: "POST", body: JSON.stringify(data) }),
     aiReportPdf: async (studentId: number, studentName?: string) => {
       const token = localStorage.getItem("auth_token");
       const headers: Record<string, string> = {};
@@ -158,5 +163,6 @@ export const api = {
   demo: {
     status: () => request<{ students: number; courses: number; attendance: number; scores: number }>("/demo/status"),
     seed: () => request<{ added_attendance: number; skipped_attendance: number; added_scores: number; skipped_scores: number }>("/demo/seed", { method: "POST" }),
+    reset: () => request<{ students: number; teachers: number; courses: number; enrollments: number; rooms: number; subjects: number; attendance: number; scores: number; adjustments: number }>("/demo/reset", { method: "POST" }),
   },
 };

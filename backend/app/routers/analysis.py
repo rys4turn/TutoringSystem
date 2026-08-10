@@ -354,34 +354,44 @@ def _exam_type_label(exam_type: str) -> str:
     }.get(exam_type, exam_type)
 
 
-def _call_deepseek(api_key: str, base_url: str, model: str, prompt: str) -> str:
+def _call_deepseek(api_key: str, base_url: str, model: str, prompt: str) -> tuple[str, str]:
     url = base_url.rstrip("/") + "/chat/completions"
-    payload = json.dumps({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "你是课外辅导机构的教务数据分析助手。你只能根据用户提供的数据撰写报告：不得编造或推测数据，不得添加数据中不存在的背景信息，必须使用固定 Markdown 章节结构，每个结论都要有数字支撑，语言客观、专业、简洁。"},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.2,
-        "max_tokens": 2400,
-        "stream": False,
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:500]
-        raise HTTPException(status_code=502, detail=f"DeepSeek API 调用失败（{e.code}）：{body}")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"DeepSeek API 连接失败：{e}")
-    try:
-        return data["choices"][0]["message"]["content"]
-    except Exception:
-        raise HTTPException(status_code=502, detail="DeepSeek API 返回格式异常")
+    candidates = [model] if model == "deepseek-chat" else [model, "deepseek-chat"]
+    for candidate in candidates:
+        for attempt in range(2):
+            payload = json.dumps({
+                "model": candidate,
+                "messages": [
+                    {"role": "system", "content": "你是课外辅导机构的教务数据分析助手。你只能根据用户提供的数据撰写报告：不得编造或推测数据，不得添加数据中不存在的背景信息，必须使用固定 Markdown 章节结构，每个结论都要有数字支撑，语言客观、专业、简洁。"},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 2400,
+                "stream": False,
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")[:500]
+                if e.code in (402, 403, 429):
+                    raise HTTPException(status_code=429, detail=f"DeepSeek 请求受限或额度不足（{e.code}）：{body}")
+                raise HTTPException(status_code=502, detail=f"DeepSeek API 调用失败（{e.code}）：{body}")
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"DeepSeek API 连接失败：{e}")
+            try:
+                content = data["choices"][0]["message"].get("content") or ""
+            except Exception:
+                raise HTTPException(status_code=502, detail="DeepSeek API 返回格式异常")
+            if content.strip():
+                return content, candidate
+            if attempt == 0:
+                continue
+    raise HTTPException(status_code=502, detail="DeepSeek 连续返回空报告，已尝试回退 deepseek-chat 仍未成功，请检查 API Key、模型配置或额度")
 
 
 @router.post("/ai-report", response_model=schemas.AiReportOut)
@@ -393,7 +403,8 @@ def ai_report(body: schemas.AiReportRequest, db: Session = Depends(get_db)):
     base_url = _get_setting(db, "deepseek_base_url", "https://api.deepseek.com")
     ctx = _load_student_context(db, body.student_id)
     prompt = _build_prompt(ctx)
-    report = _call_deepseek(api_key, base_url, model, prompt)
+    report, used_model = _call_deepseek(api_key, base_url, model, prompt)
+    model = used_model
     now = datetime.now()
     db.add(models.AiReport(
         student_id=body.student_id,
@@ -424,6 +435,405 @@ def latest_ai_report(student_id: int, db: Session = Depends(get_db)):
         report=rec.report,
         model=rec.model,
         generated_at=rec.generated_at.strftime("%Y-%m-%d %H:%M:%S") if rec.generated_at else "",
+    )
+
+
+def _course_out(c: models.Course) -> schemas.CourseOut:
+    c.student_count = len(c.students)
+    return schemas.CourseOut.model_validate(c, from_attributes=True)
+
+
+@router.get("/dashboard", response_model=schemas.DashboardOut)
+def dashboard_overview(db: Session = Depends(get_db)):
+    courses = db.query(models.Course).options(
+        joinedload(models.Course.subject),
+        joinedload(models.Course.teacher),
+        joinedload(models.Course.room),
+        joinedload(models.Course.students),
+    ).all()
+    for c in courses:
+        c.student_count = len(c.students)
+
+    today = date.today()
+    dow = today.weekday()
+    today_courses = [c for c in courses if c.day_of_week == dow]
+    att = attendance_analysis(db=db)
+    sc = score_analysis(db=db)
+    today_att_rows = db.query(models.Attendance).filter(models.Attendance.date == today).all()
+    today_att = {"total": 0, "present": 0, "late": 0, "absent": 0, "leave": 0}
+    for a in today_att_rows:
+        today_att["total"] += 1
+        if a.status in today_att:
+            today_att[a.status] += 1
+
+    weekly_load = [sum(1 for c in courses if c.day_of_week == i) for i in range(7)]
+    slot_load = [sum(1 for c in courses if c.time_slot == i) for i in range(1, 6)]
+
+    rooms = db.query(models.Room).order_by(models.Room.id).all()
+    room_occupancy = []
+    for room in rooms:
+        rc = [c for c in today_courses if c.room_id == room.id]
+        room_occupancy.append(schemas.RoomOccupancyOut(
+            room_id=room.id,
+            room_name=room.name,
+            room_type=room.room_type,
+            today_courses=len(rc),
+            today_students=sum(len(c.students) for c in rc),
+        ))
+
+    subjects = db.query(models.Subject).order_by(models.Subject.id).all()
+    subject_metrics = []
+    for subject in subjects:
+        subj_courses = [c for c in courses if c.subject_id == subject.id]
+        student_ids = set()
+        for c in subj_courses:
+            student_ids.update(s.id for s in c.students)
+        att_stat = next((x for x in att.by_subject if x.subject_id == subject.id), None)
+        score_stat = next((x for x in sc.by_subject if x.subject_id == subject.id), None)
+        subject_metrics.append(schemas.SubjectMetricOut(
+            subject_id=subject.id,
+            subject=subject.name,
+            course_count=len(subj_courses),
+            student_count=len(student_ids),
+            attendance_rate=att_stat.rate if att_stat else 0.0,
+            score_rate=score_stat.avg_rate if score_stat else 0.0,
+        ))
+
+    score_trend_map = {}
+    for t in sc.trend:
+        key = t.exam_date.isoformat()
+        item = score_trend_map.setdefault(key, {"date_val": key, "avg_rate": 0.0, "count": 0})
+        item["avg_rate"] = (item["avg_rate"] * item["count"] + t.rate) / (item["count"] + 1)
+        item["count"] += 1
+    score_trend = [
+        schemas.ScoreTrendPointOut(**v)
+        for v in sorted(score_trend_map.values(), key=lambda x: x["date_val"])[-20:]
+    ]
+
+    adjustments = db.query(models.ScheduleAdjustment).options(
+        joinedload(models.ScheduleAdjustment.course)
+    ).order_by(models.ScheduleAdjustment.created_at.desc(), models.ScheduleAdjustment.id.desc()).limit(5).all()
+
+    return schemas.DashboardOut(
+        counts=schemas.DashboardCounts(
+            students=db.query(models.Student).count(),
+            teachers=db.query(models.Teacher).count(),
+            courses=len(courses),
+            subjects=len(subjects),
+            rooms=len(rooms),
+        ),
+        today_date=today.isoformat(),
+        today_dow=dow,
+        today_courses=[_course_out(c) for c in sorted(today_courses, key=lambda c: (c.time_slot, c.room_id))],
+        today_student_seats=sum(len(c.students) for c in today_courses),
+        today_attendance=schemas.TodayAttendanceOut(**today_att),
+        weekly_load=weekly_load,
+        slot_load=slot_load,
+        room_occupancy=room_occupancy,
+        attendance=att.summary,
+        scores=sc.summary,
+        subject_metrics=subject_metrics,
+        attendance_trend=att.trend[-14:],
+        score_trend=score_trend,
+        adjustments=[schemas.AdjustmentOut.model_validate(a) for a in adjustments],
+    )
+
+
+@router.get("/course-health", response_model=list[schemas.CourseHealthOut])
+def course_health(db: Session = Depends(get_db)):
+    courses = db.query(models.Course).options(
+        joinedload(models.Course.subject),
+        joinedload(models.Course.teacher),
+        joinedload(models.Course.room),
+        joinedload(models.Course.students),
+    ).all()
+    for c in courses:
+        c.student_count = len(c.students)
+
+    att_map = defaultdict(lambda: {"total": 0, "present": 0, "late": 0, "absent": 0, "leave": 0})
+    for a in db.query(models.Attendance).all():
+        item = att_map[a.course_id]
+        item["total"] += 1
+        if a.status in item:
+            item[a.status] += 1
+
+    score_map = defaultdict(list)
+    for r in db.query(models.ScoreRecord).order_by(models.ScoreRecord.exam_date, models.ScoreRecord.id).all():
+        if r.course_id:
+            score_map[r.course_id].append(r.rate)
+
+    teacher_load = defaultdict(int)
+    for c in courses:
+        teacher_load[c.teacher_id] += 1
+
+    results = []
+    for c in courses:
+        att = att_map[c.id]
+        att_rate = _attendance_rate(att["present"], att["late"], att["total"]) if att["total"] else 0.0
+        rates = score_map.get(c.id, [])
+        score_rate = round(sum(rates) / len(rates), 1) if rates else 0.0
+        utilization = round(c.student_count / c.max_students * 100, 1) if c.max_students else 0.0
+        load = teacher_load.get(c.teacher_id, 0)
+        trend_delta = 0.0
+        if len(rates) >= 2:
+            half = len(rates) // 2
+            first = sum(rates[:half]) / half
+            second = sum(rates[half:]) / (len(rates) - half)
+            trend_delta = round(second - first, 1)
+
+        load_score = min(1.0, utilization / 100)
+        fit = max(0.0, 1 - abs(utilization - 85) / 85)
+        teacher_fit = max(0.0, 1 - max(0, load - 5) / 5)
+        if att["total"] or rates:
+            health = round(att_rate * 0.34 + score_rate * 0.30 + load_score * 22 + fit * 8 + teacher_fit * 6, 1)
+        else:
+            health = round(50 + load_score * 30 + fit * 10 + teacher_fit * 10, 1)
+
+        signals = []
+        if utilization >= 100:
+            signals.append("满员")
+        elif utilization >= 85:
+            signals.append("接近满员")
+        elif utilization <= 40:
+            signals.append("空置率偏高")
+        if att["total"] and att_rate < 85:
+            signals.append("出勤偏低")
+        if rates and score_rate < 70:
+            signals.append("成绩偏低")
+        if trend_delta < -5:
+            signals.append("成绩下滑")
+        if load >= 7:
+            signals.append("教师课量偏高")
+        risk_level = "high" if health < 65 else ("medium" if health < 80 else "low")
+
+        results.append(schemas.CourseHealthOut(
+            course_id=c.id,
+            name=c.name,
+            subject=c.subject.name if c.subject else "—",
+            teacher=c.teacher.name if c.teacher else "—",
+            room=c.room.name if c.room else "—",
+            day=c.day_of_week,
+            slot=c.time_slot,
+            students=c.student_count,
+            max_students=c.max_students,
+            attendance_rate=att_rate,
+            score_rate=score_rate,
+            utilization=utilization,
+            health_score=health,
+            risk_level=risk_level,
+            signals=signals,
+            trend_delta=trend_delta,
+            teacher_load=load,
+        ))
+
+    results.sort(key=lambda x: x.health_score)
+    return results
+
+
+@router.get("/risk", response_model=list[schemas.RiskStudentOut])
+def risk_students(db: Session = Depends(get_db)):
+    students = db.query(models.Student).all()
+    att_map = defaultdict(lambda: {"total": 0, "present": 0, "late": 0, "absent": 0, "leave": 0})
+    student_courses = defaultdict(set)
+    recent_absences = defaultdict(int)
+    today = date.today()
+    for a in db.query(models.Attendance).all():
+        item = att_map[a.student_id]
+        item["total"] += 1
+        if a.status in item:
+            item[a.status] += 1
+        student_courses[a.student_id].add(a.course_id)
+        if a.status == "absent" and (today - a.date).days <= 30:
+            recent_absences[a.student_id] += 1
+
+    score_map = defaultdict(list)
+    for r in db.query(models.ScoreRecord).order_by(models.ScoreRecord.exam_date, models.ScoreRecord.id).all():
+        score_map[r.student_id].append(r.rate)
+
+    results = []
+    for s in students:
+        att = att_map[s.id]
+        att_rate = _attendance_rate(att["present"], att["late"], att["total"]) if att["total"] else 0.0
+        rates = score_map.get(s.id, [])
+        score_rate = round(sum(rates) / len(rates), 1) if rates else 0.0
+        trend_delta = 0.0
+        if len(rates) >= 2:
+            half = len(rates) // 2
+            first = sum(rates[:half]) / half
+            second = sum(rates[half:]) / (len(rates) - half)
+            trend_delta = round(second - first, 1)
+
+        risk = 0.0
+        signals = []
+        if att["total"] and att_rate < 85:
+            risk += 30
+            signals.append("出勤率低于85%")
+        if att["total"] and att_rate < 70:
+            risk += 15
+            signals.append("出勤率低于70%")
+        if rates and score_rate < 70:
+            risk += 25
+            signals.append("平均得分率低于70%")
+        if rates and score_rate < 60:
+            risk += 10
+        if trend_delta < -5:
+            risk += 15
+            signals.append("成绩近期下滑")
+        abs_count = recent_absences[s.id]
+        if abs_count >= 2:
+            risk += 15
+            signals.append(f"近30天缺勤{abs_count}次")
+        if not rates:
+            risk += 12
+            signals.append("暂无成绩记录")
+        if len(student_courses.get(s.id, set())) == 0:
+            risk += 10
+            signals.append("未关联课程")
+
+        risk = round(min(risk, 99), 1)
+        risk_level = "high" if risk >= 70 else ("medium" if risk >= 40 else "low")
+        results.append(schemas.RiskStudentOut(
+            student_id=s.id,
+            name=s.name,
+            grade=s.grade,
+            grade_level=s.grade_level,
+            attendance_rate=att_rate,
+            score_rate=score_rate,
+            trend_delta=trend_delta,
+            recent_absences=abs_count,
+            courses=len(student_courses.get(s.id, set())),
+            risk_score=risk,
+            risk_level=risk_level,
+            signals=signals,
+        ))
+
+    results.sort(key=lambda x: x.risk_score, reverse=True)
+    return results
+
+
+def _build_ai_context(db: Session) -> dict:
+    return {
+        "dashboard": dashboard_overview(db),
+        "health": course_health(db),
+        "risk": risk_students(db),
+    }
+
+
+def _build_ai_prompt(ctx: dict, insight_type: str, question: str, history: list) -> str:
+    dash = ctx["dashboard"]
+    health = ctx["health"]
+    risk = ctx["risk"]
+    d = dash
+
+    def _pct(v: float) -> str:
+        return f"{v:.1f}%" if v else "暂无"
+
+    weekly = "、".join(f"周{['一','二','三','四','五','六','日'][i]} {d.weekly_load[i]}节" for i in range(7))
+    slot = "、".join(f"时段{i+1} {d.slot_load[i]}节" for i in range(5))
+    subjects = "；".join(
+        f"{m.subject}（{m.course_count}门课，{m.student_count}名学生，出勤{_pct(m.attendance_rate)}，成绩{_pct(m.score_rate)}）"
+        for m in d.subject_metrics
+    ) or "暂无"
+    att_trend = "；".join(
+        f"{t.date_val} {t.total}次，出勤率{_pct(t.rate)}"
+        for t in d.attendance_trend[-10:]
+    ) or "暂无"
+    score_trend = "；".join(
+        f"{t.date_val} 平均得分率{_pct(t.avg_rate)}（{t.count}条）"
+        for t in d.score_trend[-10:]
+    ) or "暂无"
+    health_lines = "\n".join(
+        f"- {h.name}（{h.subject}/{h.teacher}）：健康度{h.health_score}，出勤{_pct(h.attendance_rate)}，成绩{_pct(h.score_rate)}，满员率{h.utilization:.0f}%，教师周课量{h.teacher_load}，{('、'.join(h.signals) or '暂无信号')}"
+        for h in health[:12]
+    ) or "- 暂无"
+    risk_lines = "\n".join(
+        f"- {r.name}（{r.grade_level}{r.grade}）：风险分{r.risk_score}，出勤{_pct(r.attendance_rate)}，成绩{_pct(r.score_rate)}，近30天缺勤{r.recent_absences}次，{('、'.join(r.signals) or '暂无信号')}"
+        for r in risk[:12]
+    ) or "- 暂无"
+
+    base = f"""
+你是一个培训机构教务数据助手。只能使用下方提供的数据进行分析，禁止编造数据、人数、课程、百分比或背景信息。
+
+【机构总览】
+学生{d.counts.students}人，教师{d.counts.teachers}人，课程{d.counts.courses}门，科目{d.counts.subjects}科，教室{d.counts.rooms}间。
+今日（{d.today_date}）课程{d.today_courses.__len__()}节，覆盖{d.today_student_seats}人次；今日考勤：出勤{d.today_attendance.present}，迟到{d.today_attendance.late}，缺勤{d.today_attendance.absent}，请假{d.today_attendance.leave}。
+整体出勤率{_pct(d.attendance.rate)}，成绩平均得分率{_pct(d.scores.avg_rate)}。
+周负载：{weekly}。
+时段负载：{slot}。
+分科情况：{subjects}
+出勤趋势：{att_trend}
+成绩趋势：{score_trend}
+
+【课程健康度（按健康度从低到高）】
+{health_lines}
+
+【学生风险榜（按风险分从高到低）】
+{risk_lines}
+"""
+
+    if insight_type == "risk":
+        return base + """
+请生成一份"学生流失与学业风险分析"，固定输出以下 Markdown 章节：
+# 学生风险分析
+## 一、风险总览
+## 二、高风险学生
+## 三、中风险学生
+## 四、共同信号
+## 五、干预建议
+要求：每个结论引用具体数字；高风险/中风险学生按风险分排序并说明原因；干预建议 3-6 条，必须可落地。
+"""
+    if insight_type == "schedule":
+        return base + """
+请生成一份"排课与资源优化建议"，固定输出以下 Markdown 章节：
+# 排课优化建议
+## 一、当前负载
+## 二、教室与时段瓶颈
+## 三、教师负载
+## 四、优化建议
+## 五、风险提示
+要求：只依据提供的数据；每条建议写明具体对象（星期/时段/课程/教师）；不得虚构空教室或空闲时段。
+"""
+    if insight_type == "qa":
+        q = question.strip() or "请根据当前数据，给出一份简要的机构经营诊断"
+        history_lines = "\n".join(
+            f"{'用户' if m.get('role') == 'user' else '助手'}：{m.get('content', '')}"
+            for m in history[-8:]
+        )
+        return base + f"""
+以下是对话历史：
+{history_lines or '暂无'}
+
+用户的新问题：{q}
+请用中文回答。若数据无法回答，必须明确说明"现有数据无法判断"，再给出可用数据范围内的相关结论。回答控制在 600 字以内，可使用简洁 Markdown 列表。
+"""
+    return base + """
+请生成一份"机构运营健康报告"，固定输出以下 Markdown 章节：
+# 机构运营健康报告
+## 一、总体评分
+## 二、规模与负载
+## 三、学科表现
+## 四、课程健康
+## 五、风险预警
+## 六、改进建议
+要求：每条结论引用具体数字；总体评分需给出 0-100 分和评分依据；改进建议 4-6 条。
+"""
+
+
+@router.post("/ai-insight", response_model=schemas.AiInsightOut)
+def ai_insight(body: schemas.AiInsightRequest, db: Session = Depends(get_db)):
+    api_key = body.api_key or os.environ.get("DEEPSEEK_API_KEY") or _get_setting(db, "deepseek_api_key")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="尚未配置 DeepSeek API Key，请先在设置中填写")
+    model = body.model or _get_setting(db, "deepseek_model", "deepseek-chat")
+    base_url = _get_setting(db, "deepseek_base_url", "https://api.deepseek.com")
+    ctx = _build_ai_context(db)
+    prompt = _build_ai_prompt(ctx, body.insight_type, body.question, body.history)
+    answer, used_model = _call_deepseek(api_key, base_url, model, prompt)
+    now = datetime.now()
+    return schemas.AiInsightOut(
+        answer=answer,
+        model=used_model,
+        generated_at=now.isoformat(timespec="seconds"),
     )
 
 
