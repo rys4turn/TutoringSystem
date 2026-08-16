@@ -11,6 +11,8 @@ node_modules/
 
 # 数据库文件
 *.db
+*.db.*
+*.bak-*
 
 # 环境变量
 .env

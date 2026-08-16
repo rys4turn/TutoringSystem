@@ -12,10 +12,10 @@ class RoomOut(BaseModel):
 
 
 class StudentCreate(BaseModel):
-    name: str; grade_level: str; grade: str; phone: str = ""; notes: str = ""
+    name: str; grade_level: str; grade: str; track: str = ""; phone: str = ""; notes: str = ""
 
 class StudentOut(BaseModel):
-    id: int; name: str; grade_level: str; grade: str; phone: str; notes: str
+    id: int; name: str; grade_level: str; grade: str; track: str; phone: str; notes: str
     model_config = {"from_attributes": True}
 
 
@@ -369,3 +369,101 @@ class AiInsightOut(BaseModel):
     answer: str = ""
     model: str = ""
     generated_at: str = ""
+
+
+# 录取分数线（中考/高考）
+EXAM_TYPE_LABELS = {"zhongkao": "中考", "gaokao": "高考"}
+
+class AdmissionLineOut(BaseModel):
+    id: int
+    exam_type: str
+    region: str
+    year: int
+    category: str
+    track: str = ""
+    province: str = ""
+    school: str
+    code: str = ""
+    score: float
+    note: str = ""
+    model_config = {"from_attributes": True}
+
+class AdmissionLineCreate(BaseModel):
+    exam_type: str = "zhongkao"
+    region: str = "苏州"
+    year: int = 2026
+    category: str = "四星级高中"
+    track: str = ""
+    province: str = ""
+    school: str
+    code: str = ""
+    score: float
+    note: str = ""
+
+class AdmissionLineUpdate(BaseModel):
+    exam_type: Optional[str] = None
+    region: Optional[str] = None
+    year: Optional[int] = None
+    category: Optional[str] = None
+    track: Optional[str] = None
+    province: Optional[str] = None
+    school: Optional[str] = None
+    code: Optional[str] = None
+    score: Optional[float] = None
+    note: Optional[str] = None
+
+
+# 择校冲刺分析
+class RoadmapLineItem(BaseModel):
+    line_id: int = 0
+    school: str
+    category: str
+    track: str = ""
+    province: str = ""
+    score: float
+    gap: float
+    status: str = "冲刺"  # 稳上/冲刺/差距
+
+class RoadmapTarget(BaseModel):
+    school: str
+    category: str
+    track: str = ""
+    province: str = ""
+    line_score: float
+    projected_score: float
+    gap: float
+    status: str = "冲刺"  # 冲刺/稳妥/保底
+
+class RoadmapSubjectInsight(BaseModel):
+    subject_id: int
+    subject: str
+    avg_rate: float = 0.0
+    latest_rate: float = 0.0
+    trend_delta: float = 0.0
+    weight: float = 0.0
+    gain_potential: float = 0.0
+    level: str = "中等"   # 优势/中等/薄弱
+    advice: str = ""
+
+class RoadmapStage(BaseModel):
+    stage: str = ""          # 初中基础期/中考冲刺期/高中基础期/高考冲刺期
+    exam_type: str = ""      # zhongkao/gaokao
+    region: str = ""
+    current_total: float = 0.0
+    projected_total: float = 0.0
+    total_full: float = 0.0
+    rank_hint: str = ""
+
+class RoadmapOut(BaseModel):
+    student: StudentOut
+    stage: RoadmapStage
+    lines: list[RoadmapLineItem] = []
+    targets: list[RoadmapTarget] = []
+    subjects: list[RoadmapSubjectInsight] = []
+    suggestions: list[str] = []
+    summary: str = ""
+
+class AiRoadmapRequest(BaseModel):
+    student_id: int
+    api_key: Optional[str] = None
+    model: Optional[str] = None

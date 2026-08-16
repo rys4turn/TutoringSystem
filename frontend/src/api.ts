@@ -1,4 +1,4 @@
-import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment, ScoreRecord, ScoreForm, AttendanceAnalysis, ScoreAnalysis, RadarData, SettingsData, AiReport, DashboardData, CourseHealthItem, RiskStudentItem, AiInsightRequest, AiInsightResult } from "./types";
+import type { Room, Student, Subject, Teacher, Course, CourseForm, Attendance, AttendanceReport, ScheduleAdjustment, ScoreRecord, ScoreForm, AttendanceAnalysis, ScoreAnalysis, RadarData, SettingsData, AiReport, DashboardData, CourseHealthItem, RiskStudentItem, AiInsightRequest, AiInsightResult, AdmissionLine, RoadmapData } from "./types";
 
 const BASE = import.meta.env.DEV ? "/api" : "";
 
@@ -133,6 +133,22 @@ export const api = {
     risk: () => request<RiskStudentItem[]>("/analysis/risk"),
     aiInsight: (data: AiInsightRequest) =>
       request<AiInsightResult>("/analysis/ai-insight", { method: "POST", body: JSON.stringify(data) }),
+    admissionLines: (params?: { exam_type?: string; region?: string; year?: number }) => {
+      const sp = new URLSearchParams();
+      if (params?.exam_type) sp.set("exam_type", params.exam_type);
+      if (params?.region) sp.set("region", params.region);
+      if (params?.year) sp.set("year", String(params.year));
+      return request<AdmissionLine[]>(`/analysis/admission-lines?${sp}`);
+    },
+    createAdmissionLine: (data: Omit<AdmissionLine, "id">) =>
+      request<AdmissionLine>("/analysis/admission-lines", { method: "POST", body: JSON.stringify(data) }),
+    updateAdmissionLine: (id: number, data: Partial<AdmissionLine>) =>
+      request<AdmissionLine>(`/analysis/admission-lines/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteAdmissionLine: (id: number) =>
+      request<void>(`/analysis/admission-lines/${id}`, { method: "DELETE" }),
+    roadmap: (studentId: number) => request<RoadmapData>(`/analysis/roadmap/${studentId}`),
+    aiRoadmap: (studentId: number, apiKey?: string, model?: string) =>
+      request<AiInsightResult>("/analysis/ai-roadmap", { method: "POST", body: JSON.stringify({ student_id: studentId, api_key: apiKey, model }) }),
     aiReportPdf: async (studentId: number, studentName?: string) => {
       const token = localStorage.getItem("auth_token");
       const headers: Record<string, string> = {};
