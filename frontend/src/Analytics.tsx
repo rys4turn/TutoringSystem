@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
 import { FileText, Settings, Zap, Download } from "lucide-react";
 import { api } from "./api";
 import { Modal } from "./Modal";
-import type { Student, Subject, Course, ScoreRecord, ScoreForm, ScoreAnalysis, RadarData, SettingsData, AiReport } from "./types";
+import type { Student, Subject, Course, ScoreRecord, ScoreForm, ScoreAnalysis, RadarData, SettingsData, AiReport, AdmissionLine, RoadmapData, AiInsightResult } from "./types";
+import { EXAM_TYPE_LABELS } from "./types";
 
 // === Searchable student picker ===
 export function StudentPicker({ students, value, onChange, placeholder }: {
@@ -76,19 +77,21 @@ export function AnalysisView({ students, setError }: {
   const [stuGrade, setStuGrade] = useState("");
   const [scoreData, setScoreData] = useState<ScoreAnalysis | null>(null);
   const [radarData, setRadarData] = useState<RadarData | null>(null);
+  const [roadmapData, setRoadmapData] = useState<RoadmapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const radarSeq = useRef(0);
-  useEffect(() => { if (subTab === "scores") loadScore(); if (subTab === "radar") loadRadar(); }, [subTab, selectedStudent]);
+  useEffect(() => { if (subTab === "scores") loadScore(); if (subTab === "radar") loadRadar(); if (subTab === "roadmap") loadRoadmap(); }, [subTab, selectedStudent]);
   const loadScore = async () => { setLoading(true); setScoreData(null); try { setScoreData(await api.analysis.scores({ student_id: selectedStudent || undefined })); } catch(e:any){setError(e.message)} finally{setLoading(false)} };
   const loadRadar = async () => { if(!selectedStudent)return; const seq = ++radarSeq.current; setLoading(true); setRadarData(null); try { const data = await api.analysis.radar(selectedStudent); if (seq === radarSeq.current) setRadarData(data); } catch(e:any){ if (seq === radarSeq.current) setError(e.message); } finally{ if (seq === radarSeq.current) setLoading(false); } };
-  const tabs = [ { id: "scores", label: "成绩分析" }, { id: "radar", label: "个人雷达" }, { id: "ai", label: "AI 报告" } ];
+  const loadRoadmap = async () => { if(!selectedStudent)return; setLoading(true); setRoadmapData(null); try { setRoadmapData(await api.analysis.roadmap(selectedStudent)); } catch(e:any){setError(e.message)} finally{setLoading(false)} };
+  const tabs = [ { id: "scores", label: "成绩分析" }, { id: "radar", label: "个人雷达" }, { id: "roadmap", label: "择校冲刺" }, { id: "ai", label: "AI 报告" } ];
   return (
     <div className="view-page p-6">
       <div className="flex justify-between mb-4"><h2 className="text-base font-semibold text-gray-800">数据分析</h2><button onClick={()=>setShowSettings(true)} className="ghost-btn !px-2 !py-1 text-xs"><Settings className="w-3.5 h-3.5" /> API设置</button></div>
       <div className="flex gap-2 mb-4">{tabs.map(t=><button key={t.id} onClick={()=>setSubTab(t.id)} className={`chip ${subTab===t.id?"active":""}`}>{t.label}</button>)}</div>
       {subTab==="scores" && <select value={selectedStudent} onChange={e=>setSelectedStudent(+e.target.value)} className="field field-auto min-w-[120px] mb-3"><option value={0}>全部学生</option>{students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-      {(subTab==="scores"||subTab==="radar"||subTab==="ai") && (
+      {(subTab==="scores"||subTab==="radar"||subTab==="roadmap"||subTab==="ai") && (
         <div className="flex gap-2 mb-3 flex-wrap items-center">
           <input value={studentSearch} onChange={e=>setStudentSearch(e.target.value)} placeholder="搜索学生..." className="field field-auto min-w-[140px]" />
           <select value={stuGradeLevel} onChange={e=>{setStuGradeLevel(e.target.value);setStuGrade("")}} className="field field-auto"><option value="">全部学段</option><option value="初中">初中</option><option value="高中">高中</option></select>
@@ -99,6 +102,7 @@ export function AnalysisView({ students, setError }: {
       {loading && <div className="text-sm text-slate-400 py-8 text-center">加载中...</div>}
       {!loading && subTab==="scores" && scoreData && <ScorePanel data={scoreData} />}
       {subTab==="radar" && <RadarPanel students={(studentSearch||stuGradeLevel)?students.filter(s=>(!studentSearch||s.name.includes(studentSearch))&&(!stuGradeLevel||s.grade_level===stuGradeLevel)&&(!stuGrade||s.grade===stuGrade)):students} radarData={radarData} selectedStudent={selectedStudent} setSelectedStudent={setSelectedStudent} loading={loading} />}
+      {subTab==="roadmap" && <RoadmapPanel students={(studentSearch||stuGradeLevel)?students.filter(s=>(!studentSearch||s.name.includes(studentSearch))&&(!stuGradeLevel||s.grade_level===stuGradeLevel)&&(!stuGrade||s.grade===stuGrade)):students} roadmapData={roadmapData} selectedStudent={selectedStudent} setSelectedStudent={setSelectedStudent} loading={loading} setError={setError} />}
       {!loading && subTab==="ai" && <AIPanel students={(studentSearch||stuGradeLevel)?students.filter(s=>(!studentSearch||s.name.includes(studentSearch))&&(!stuGradeLevel||s.grade_level===stuGradeLevel)&&(!stuGrade||s.grade===stuGrade)):students} setError={setError} showSettings={showSettings} setShowSettings={setShowSettings} />}
     </div>
   );
@@ -123,6 +127,287 @@ function RadarPanel({ students, radarData, selectedStudent, setSelectedStudent, 
     {loading && <div className="text-sm text-slate-400 py-8 text-center">加载中...</div>}
     {radarData && <div className="panel p-4 flex flex-col items-center"><h3 className="text-sm font-semibold text-slate-800 mb-1">{radarData.student.name} ({radarData.student.grade})</h3><RadarChart axes={radarData.axes} /><div className="mt-3 w-full max-w-lg space-y-1">{radarData.axes.map(a=><div key={a.subject_id} className="flex items-center gap-2 text-xs"><span className="w-12 text-slate-600 font-medium">{a.subject}</span><span className="text-orange-600">课前{a.entry_avg_rate}%</span><span className="text-green-600">课后{a.quiz_avg_rate}%</span><span className={`font-medium w-14 text-right ${a.quiz_avg_rate-a.entry_avg_rate>=0?"text-green-600":"text-red-500"}`}>{(a.quiz_avg_rate-a.entry_avg_rate>=0?"+":"")+(a.quiz_avg_rate-a.entry_avg_rate).toFixed(1)}pp</span><span className="text-slate-400 ml-auto">出勤{a.attendance_rate}% · {a.record_count}条</span></div>)}</div></div>}
   </div>;
+}
+
+// === 择校冲刺分析 ===
+function RoadmapPanel({ students, roadmapData, selectedStudent, setSelectedStudent, loading, setError }: {
+  students: Student[]; roadmapData: RoadmapData|null; selectedStudent: number;
+  setSelectedStudent: (v:number)=>void; loading: boolean; setError: (e:string)=>void;
+}) {
+  const [lines, setLines] = useState<AdmissionLine[]>([]);
+  const [filterExam, setFilterExam] = useState("");
+  const [filterRegion, setFilterRegion] = useState("");
+  const [showLineForm, setShowLineForm] = useState(false);
+  const [aiReport, setAiReport] = useState<AiInsightResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  const loadLines = useCallback(() => {
+    api.analysis.admissionLines({ exam_type: filterExam || undefined, region: filterRegion || undefined })
+      .then(setLines).catch(e => setError(e.message));
+  }, [filterExam, filterRegion, setError]);
+  useEffect(() => { loadLines(); }, [loadLines]);
+
+  const genAi = async () => {
+    if (!selectedStudent) return;
+    setAiLoading(true); setAiError(""); setAiReport(null);
+    try { setAiReport(await api.analysis.aiRoadmap(selectedStudent)); }
+    catch (e: any) { const msg = e.message || "生成失败"; setAiError(msg); setError(msg); }
+    finally { setAiLoading(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="max-w-[240px]"><StudentPicker students={students} value={selectedStudent} onChange={(id) => { setSelectedStudent(id); setAiReport(null); }} /></div>
+        <span className="text-xs text-slate-400">选择学生后自动生成中考/高考择校冲刺分析</span>
+      </div>
+      {loading && <div className="text-sm text-slate-400 py-8 text-center">加载中...</div>}
+      {roadmapData && (
+        <>
+          <div className="panel p-4">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">{roadmapData.student.name} · {roadmapData.student.grade}{roadmapData.student.track ? `（${roadmapData.student.track}）` : ""}</h3>
+                <div className="text-xs text-slate-400">{roadmapData.stage.stage} · {EXAM_TYPE_LABELS[roadmapData.stage.exam_type] || roadmapData.stage.exam_type}（{roadmapData.stage.region}）</div>
+              </div>
+              <button onClick={genAi} disabled={aiLoading} className="primary-btn !px-3 !py-1.5 text-xs"><Zap className="w-3.5 h-3.5" /> {aiLoading ? "生成中..." : "生成 AI 冲刺报告"}</button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="stat-tile p-3 text-center"><div className="text-xs text-slate-400">当前估算总分</div><div className="text-lg font-bold text-indigo-600">{roadmapData.stage.current_total}<span className="text-xs text-slate-400">/{roadmapData.stage.total_full}</span></div></div>
+              <div className="stat-tile p-3 text-center"><div className="text-xs text-slate-400">预计可达</div><div className="text-lg font-bold text-green-600">{roadmapData.stage.projected_total}<span className="text-xs text-slate-400">/{roadmapData.stage.total_full}</span></div></div>
+              <div className="stat-tile p-3 text-center"><div className="text-xs text-slate-400">位次参考</div><div className="text-sm font-bold text-slate-700 pt-1.5">{roadmapData.stage.rank_hint || "—"}</div></div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">{roadmapData.summary}</p>
+          </div>
+
+          <div className="panel p-4">
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">目标学校（稳妥 ≥ +8 分 / 冲刺 -12~+8 分 / 差距 &lt; -12 分）</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {roadmapData.targets.slice(0, 8).map((t, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 rounded-2xl bg-white/50 border border-slate-100 text-xs">
+                  <div>
+                    <div className="font-medium text-slate-800">{t.school}</div>
+                    <div className="text-[10px] text-slate-400">{t.category}{t.track ? ` / ${t.track}` : ""}{t.province === "江苏" ? " / 江苏" : ""} · 线 {t.line_score} 分</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`status-chip px-1.5 py-0.5 text-[10px] ${t.status === "稳妥" ? "status-school" : t.status === "冲刺" ? "status-class" : "status-quiz"}`}>{t.status}</span>
+                    <span className={`font-medium ${t.gap >= 0 ? "text-green-600" : "text-red-500"}`}>{t.gap >= 0 ? "+" : ""}{t.gap}</span>
+                  </div>
+                </div>
+              ))}
+              {roadmapData.targets.length === 0 && <div className="text-xs text-slate-400 py-4 text-center col-span-2">暂无目标学校，请先维护分数线</div>}
+            </div>
+          </div>
+
+          <div className="panel p-4">
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">分科提分空间（按可提分排序）</h4>
+            <div className="space-y-1.5">
+              {roadmapData.subjects.slice(0, 8).map((x) => (
+                <div key={x.subject_id} className="flex items-center gap-2 text-xs">
+                  <span className="w-12 text-slate-600 font-medium">{x.subject}</span>
+                  <div className="w-full max-w-xs h-2 progress-track"><div className={`h-full rounded-full ${x.level === "优势" ? "fill-good" : x.level === "中等" ? "fill-mid" : "fill-low"}`} style={{ width: `${Math.min(100, x.latest_rate)}%` }} /></div>
+                  <span className="w-14 text-right text-slate-500">{x.latest_rate}%</span>
+                  {x.gain_potential > 0 && <span className="w-20 text-right text-amber-600">可提 {x.gain_potential} 分</span>}
+                  <span className="text-slate-400 ml-auto truncate">{x.advice}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel p-4">
+            <h4 className="text-xs font-semibold text-slate-700 mb-2">阶段学习建议</h4>
+            <ul className="space-y-1 text-xs text-slate-600">
+              {roadmapData.suggestions.map((s, i) => <li key={i} className="flex gap-2"><span className="text-indigo-400">•</span>{s}</li>)}
+            </ul>
+          </div>
+
+          {aiError && <div className="test-error px-3 py-2 rounded-2xl text-sm">{aiError}</div>}
+          {aiLoading && <div className="report-loading">正在调用 AI 生成冲刺报告...</div>}
+          {aiReport && !aiLoading && aiReport.answer.trim() && (
+            <div className="report-sheet report-reveal max-h-[520px] overflow-auto">
+              <ReportContent text={aiReport.answer} />
+              <div className="report-meta">模型: {aiReport.model} · 生成时间: {aiReport.generated_at}</div>
+            </div>
+          )}
+        </>
+      )}
+      {!loading && !roadmapData && <div className="panel p-6 text-center text-sm text-slate-400">选择学生后查看择校冲刺分析</div>}
+
+      <LineManager
+        lines={lines} onChanged={loadLines}
+        filterExam={filterExam} setFilterExam={setFilterExam}
+        filterRegion={filterRegion} setFilterRegion={setFilterRegion}
+        showForm={showLineForm} setShowForm={setShowLineForm}
+        setError={setError}
+      />
+    </div>
+  );
+}
+
+function LineManager({ lines, onChanged, filterExam, setFilterExam, filterRegion, setFilterRegion, showForm, setShowForm, setError }: {
+  lines: AdmissionLine[]; onChanged: () => void;
+  filterExam: string; setFilterExam: (v: string) => void;
+  filterRegion: string; setFilterRegion: (v: string) => void;
+  showForm: boolean; setShowForm: (v: boolean) => void;
+  setError: (e: string) => void;
+}) {
+  return (
+    <div className="panel p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h4 className="text-xs font-semibold text-slate-700">中考/高考分数线库（2026 苏州·江苏）</h4>
+        <div className="flex gap-2 items-center">
+          <select value={filterExam} onChange={e => setFilterExam(e.target.value)} className="field field-auto min-w-[90px] !py-1 text-xs">
+            <option value="">全部考试</option>
+            {Object.entries(EXAM_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className="field field-auto min-w-[80px] !py-1 text-xs">
+            <option value="">全部地区</option>
+            <option value="苏州">苏州</option>
+            <option value="江苏">江苏</option>
+          </select>
+          <button onClick={() => setShowForm(true)} className="ghost-btn !px-2 !py-1 text-xs">+ 添加分数线</button>
+        </div>
+      </div>
+      <div className="max-h-56 overflow-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-slate-400 border-b border-slate-100">
+              <th className="py-1.5 pr-2 font-medium">考试</th>
+              <th className="py-1.5 pr-2 font-medium">地区</th>
+              <th className="py-1.5 pr-2 font-medium">年份</th>
+              <th className="py-1.5 pr-2 font-medium">批次</th>
+              <th className="py-1.5 pr-2 font-medium">类别</th>
+              <th className="py-1.5 pr-2 font-medium">省份</th>
+              <th className="py-1.5 pr-2 font-medium">学校/线</th>
+              <th className="py-1.5 pr-2 font-medium text-right">最低分</th>
+              <th className="py-1.5 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map(l => (
+              <tr key={l.id} className="border-b border-slate-50 text-slate-600">
+                <td className="py-1.5 pr-2">{EXAM_TYPE_LABELS[l.exam_type] || l.exam_type}</td>
+                <td className="py-1.5 pr-2">{l.region}</td>
+                <td className="py-1.5 pr-2">{l.year}</td>
+                <td className="py-1.5 pr-2">{l.category}</td>
+                <td className="py-1.5 pr-2">{l.track || "—"}</td>
+                <td className="py-1.5 pr-2">{l.province || "—"}</td>
+                <td className="py-1.5 pr-2 text-slate-800">{l.school}</td>
+                <td className="py-1.5 pr-2 text-right font-medium">{l.score}</td>
+                <td className="py-1.5 text-right">
+                  <button onClick={async () => { try { await api.analysis.deleteAdmissionLine(l.id); onChanged(); } catch (e: any) { setError(e.message); } }} className="icon-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {lines.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-slate-400">暂无分数线记录</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {showForm && <LineFormModal onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); onChanged(); }} setError={setError} />}
+    </div>
+  );
+}
+
+function LineFormModal({ onClose, onSaved, setError }: {
+  onClose: () => void; onSaved: () => void; setError: (e: string) => void;
+}) {
+  const [examType, setExamType] = useState("zhongkao");
+  const [region, setRegion] = useState("苏州");
+  const [year, setYear] = useState(2026);
+  const [category, setCategory] = useState("四星级高中");
+  const [track, setTrack] = useState("");
+  const [province, setProvince] = useState("");
+  const [school, setSchool] = useState("");
+  const [code, setCode] = useState("");
+  const [score, setScore] = useState(0);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handle = async (e: FormEvent) => {
+    e.preventDefault(); setSaving(true);
+    try {
+      await api.analysis.createAdmissionLine({
+        exam_type: examType, region, year, category, track, province,
+        school, code, score, note,
+      });
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="modal-card w-[440px] max-h-[85vh]">
+        <div className="flex justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold text-slate-800">添加分数线</h3>
+          <button onClick={onClose} className="hover:rotate-90 transition-transform duration-200">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <form onSubmit={handle} className="p-5 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">考试</label>
+              <select value={examType} onChange={e => { setExamType(e.target.value); if (e.target.value === "zhongkao") { setRegion("苏州"); } else { setRegion("江苏"); } }} className="field">
+                {Object.entries(EXAM_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">地区</label>
+              <select value={region} onChange={e => setRegion(e.target.value)} className="field">
+                <option value="苏州">苏州</option>
+                <option value="江苏">江苏</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">年份</label>
+              <input type="number" value={year} onChange={e => setYear(+e.target.value)} className="field" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">批次/类别</label>
+              <input value={category} onChange={e => setCategory(e.target.value)} className="field" placeholder="如：四星级高中 / 本科批投档线" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">科类（高考）</label>
+              <select value={track} onChange={e => setTrack(e.target.value)} className="field">
+                <option value="">—</option>
+                <option value="历史类">历史类</option>
+                <option value="物理类">物理类</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">学校所在省份（江苏院校在分数接近时优先推荐）</label>
+            <input value={province} onChange={e => setProvince(e.target.value)} className="field" placeholder="如：江苏 / 北京 / 上海" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">学校/分数线名称</label>
+            <input value={school} onChange={e => setSchool(e.target.value)} required className="field" placeholder="如：江苏省苏州中学校" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">学校代码</label>
+              <input value={code} onChange={e => setCode(e.target.value)} className="field" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">最低分</label>
+              <input type="number" value={score} onChange={e => setScore(+e.target.value)} min={0} required className="field" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">备注</label>
+            <input value={note} onChange={e => setNote(e.target.value)} className="field" />
+          </div>
+          <button type="submit" disabled={saving} className="primary-btn w-full">{saving ? "保存中..." : "保存"}</button>
+        </form>
+      </div>
+    </Modal>
+  );
 }
 
 function AIPanel({ students, setError, showSettings, setShowSettings }: {

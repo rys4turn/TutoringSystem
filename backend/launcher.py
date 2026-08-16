@@ -27,22 +27,41 @@ def get_static_dir():
 
 
 def is_port_free(port, host="127.0.0.1"):
-    """Check if a port is available."""
+    """Check if a port is available. 返回 (是否可用, 错误码)。"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         try:
             s.bind((host, port))
-            return True
-        except OSError:
-            return False
+            return True, None
+        except OSError as e:
+            err = getattr(e, "winerror", None) or getattr(e, "errno", None)
+            return False, err
 
 
-def find_free_port(start=5000, end=5010):
-    """Find the first free port in range."""
-    for port in range(start, end + 1):
-        if is_port_free(port):
-            return port
-    return None
+def find_free_port():
+    """在多个常用端口段中查找可用端口（自动跳过 Windows 系统保留端口）。
+
+    部分 Windows 机器上 5000-5010 会被 Hyper-V/WSL 动态端口段保留（WinError 10013），
+    此时继续在后续端口段中查找，保证程序仍可启动。
+    """
+    ranges = [
+        (5000, 5010),
+        (8000, 8010),
+        (8080, 8090),
+        (9000, 9010),
+        (3000, 3010),
+        (5173, 5183),
+        (9500, 9600),
+    ]
+    os_reserved = []
+    for lo, hi in ranges:
+        for port in range(lo, hi + 1):
+            free, err = is_port_free(port)
+            if free:
+                return port, os_reserved
+            if err == 10013:  # 系统保留端口段（Hyper-V/WSL 动态端口）
+                os_reserved.append(port)
+    return None, os_reserved
 
 
 def open_browser(port):
@@ -56,11 +75,16 @@ if __name__ == "__main__":
         print(f"[WARN] 静态文件目录不存在: {static}")
         print("请先运行 build.bat 构建前端")
 
-    port = find_free_port()
+    port, os_reserved = find_free_port()
     if port is None:
         print("=" * 50)
-        print("[错误] 端口 5000-5010 全部被占用！")
-        print("请关闭正在运行的程序后再试。")
+        print("[错误] 未找到可用端口，程序无法启动。")
+        if os_reserved:
+            print(f"提示：{len(os_reserved)} 个端口被 Windows 系统保留"
+                  f"（5000-5010 可能被 Hyper-V/WSL 动态端口段占用）。")
+            print("可通过环境变量 TUTORING_PORT 手动指定一个空闲端口后重试。")
+        else:
+            print("请关闭占用端口的程序后再试，或通过环境变量 TUTORING_PORT 指定端口。")
         print("=" * 50)
         input("按回车键退出...")
         sys.exit(1)
@@ -82,7 +106,7 @@ if __name__ == "__main__":
     if port_env and port != 5000:
         print(f"[提示] 使用指定端口 {port}")
     elif port != 5000:
-        print(f"[提示] 默认端口 5000 已被占用，使用端口 {port}")
+        print(f"[提示] 默认端口 5000 不可用（被系统保留或被占用），已改用端口 {port}")
     print(f"监听地址: {host}:{port}")
     print(f"数据库: {db_path}")
 

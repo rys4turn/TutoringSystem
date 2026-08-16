@@ -1,5 +1,7 @@
 ﻿from sqlalchemy import Column, Integer, String, ForeignKey, Table, UniqueConstraint, Date, DateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy import Float
+from sqlalchemy import Text
 from sqlalchemy.sql import func
 from .database import Base
 
@@ -29,10 +31,12 @@ class Student(Base):
     name = Column(String, nullable=False)
     grade_level = Column(String, nullable=False)
     grade = Column(String, nullable=False)
+    track = Column(String, default="")
     phone = Column(String, default="")
     notes = Column(String, default="")
     courses = relationship("Course", secondary=enrollment, back_populates="students")
     attendances = relationship("Attendance", back_populates="student")
+    scores = relationship("ScoreRecord", back_populates="student")
 
 class Subject(Base):
     __tablename__ = "subjects"
@@ -40,6 +44,7 @@ class Subject(Base):
     name = Column(String, nullable=False, unique=True)
     teachers = relationship("Teacher", secondary=teacher_subject, back_populates="subjects")
     courses = relationship("Course", back_populates="subject")
+    scores = relationship("ScoreRecord", back_populates="subject")
 
 class Teacher(Base):
     __tablename__ = "teachers"
@@ -69,6 +74,7 @@ class Course(Base):
     students = relationship("Student", secondary=enrollment, back_populates="courses")
     attendances = relationship("Attendance", back_populates="course")
     adjustments = relationship("ScheduleAdjustment", back_populates="course")
+    scores = relationship("ScoreRecord", back_populates="course")
 
 class Attendance(Base):
     __tablename__ = "attendances"
@@ -99,6 +105,58 @@ class ScheduleAdjustment(Base):
     course = relationship("Course", back_populates="adjustments")
     original_room = relationship("Room", foreign_keys=[original_room_id])
     new_room = relationship("Room", foreign_keys=[new_room_id])
+
+class ScoreRecord(Base):
+    __tablename__ = "score_records"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=True)
+    exam_type = Column(String, nullable=False, default="quiz")
+    exam_name = Column(String, nullable=False)
+    score = Column(Float, nullable=False)
+    max_score = Column(Float, nullable=False, default=100)
+    exam_date = Column(Date, nullable=False)
+    notes = Column(String, default="")
+    created_at = Column(DateTime, server_default=func.now())
+    student = relationship("Student", back_populates="scores")
+    subject = relationship("Subject", back_populates="scores")
+    course = relationship("Course", back_populates="scores")
+
+    @property
+    def rate(self) -> float:
+        return round(self.score / self.max_score * 100, 1) if self.max_score else 0.0
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    key = Column(String, primary_key=True)
+    value = Column(String, default="")
+
+class AiReport(Base):
+    __tablename__ = "ai_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    report = Column(Text, nullable=False)
+    model = Column(String, default="")
+    generated_at = Column(DateTime, server_default=func.now())
+    student = relationship("Student")
+
+
+class AdmissionLine(Base):
+    """中考/高考录取分数线（苏州/江苏），用于学生择校冲刺分析。"""
+    __tablename__ = "admission_lines"
+    id = Column(Integer, primary_key=True, index=True)
+    exam_type = Column(String, nullable=False, default="zhongkao")  # zhongkao | gaokao
+    region = Column(String, nullable=False, default="苏州")         # 苏州 | 江苏
+    year = Column(Integer, nullable=False, default=2026)
+    category = Column(String, nullable=False)   # 批次/类别，如：四星级高中、本科批投档线
+    track = Column(String, default="")          # 高考：历史类/物理类；中考为空
+    province = Column(String, default="")       # 学校所在省份（江苏院校在分数接近时优先推荐）
+    school = Column(String, nullable=False)     # 学校名或控制线名称
+    code = Column(String, default="")
+    score = Column(Float, nullable=False)       # 录取最低分
+    note = Column(String, default="")
+
 
 class User(Base):
     __tablename__ = "users"

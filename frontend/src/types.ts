@@ -11,6 +11,7 @@ export interface Student {
   name: string;
   grade_level: string;
   grade: string;
+  track: string;
   phone: string;
   notes: string;
 }
@@ -64,6 +65,7 @@ export const TIME_SLOTS = ["08:00-10:00", "10:00-12:00", "13:00-15:00", "15:00-1
 export const GRADE_LEVELS = ["初中", "高中"];
 export const JUNIOR_GRADES = ["初一", "初二", "初三"];
 export const SENIOR_GRADES = ["高一", "高二", "高三"];
+export const TRACKS = ["文科", "理科"];
 export const COURSE_TYPES: Record<string, string> = { class: "课程", self_study: "自习" };
 export const ROOM_TYPES: Record<string, string> = { large: "大教室", small: "小教室", study: "自习室" };
 
@@ -358,4 +360,74 @@ export interface AiInsightResult {
   answer: string;
   model: string;
   generated_at: string;
+}
+
+export interface AdmissionLine {
+  id: number;
+  exam_type: string;
+  region: string;
+  year: number;
+  category: string;
+  track: string;
+  province: string;
+  school: string;
+  code: string;
+  score: number;
+  note: string;
+}
+
+export const EXAM_TYPE_LABELS: Record<string, string> = { zhongkao: "中考", gaokao: "高考" };
+
+export interface RoadmapLineItem {
+  line_id: number;
+  school: string;
+  category: string;
+  track: string;
+  province: string;
+  score: number;
+  gap: number;
+  status: string;
+}
+
+export interface RoadmapTarget {
+  school: string;
+  category: string;
+  track: string;
+  province: string;
+  line_score: number;
+  projected_score: number;
+  gap: number;
+  status: string;
+}
+
+export interface RoadmapSubjectInsight {
+  subject_id: number;
+  subject: string;
+  avg_rate: number;
+  latest_rate: number;
+  trend_delta: number;
+  weight: number;
+  gain_potential: number;
+  level: string;
+  advice: string;
+}
+
+export interface RoadmapStage {
+  stage: string;
+  exam_type: string;
+  region: string;
+  current_total: number;
+  projected_total: number;
+  total_full: number;
+  rank_hint: string;
+}
+
+export interface RoadmapData {
+  student: Student;
+  stage: RoadmapStage;
+  lines: RoadmapLineItem[];
+  targets: RoadmapTarget[];
+  subjects: RoadmapSubjectInsight[];
+  suggestions: string[];
+  summary: string;
 }

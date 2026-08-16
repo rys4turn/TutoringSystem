@@ -14,3 +14,10 @@ backend/tutoring.db
 *.exe
 *.spec
 *.bat
+*.tar
+docker_screenshot.png
+docker-deploy/
+backend/static/
+_original_api.ts
+data/*
+!data/tutoring.db
