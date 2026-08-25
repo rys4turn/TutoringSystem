@@ -10,6 +10,8 @@ import { ScoresView, AnalysisView } from "./Analytics";
 import { DashboardView } from "./Dashboard";
 import { AiLabView } from "./AiLab";
 import { Modal } from "./Modal";
+import { SearchPicker } from "./SearchPicker";
+import { todayLocal } from "./dates";
 import type { Course, Student, Subject, Teacher, ScheduleAdjustment, AttendanceAnalysis } from "./types";
 import { DAY_NAMES, TIME_SLOTS, GRADE_LEVELS, JUNIOR_GRADES, SENIOR_GRADES, COURSE_TYPES, TRACKS } from "./types";
 
@@ -46,6 +48,8 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem("auth_token") || "");
   const [user, setUser] = useState<{username: string; role: string} | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [scheduleTeacherFilter, setScheduleTeacherFilter] = useState(0);
+  const [scheduleStudentFilter, setScheduleStudentFilter] = useState(0);
 
   useEffect(() => {
     if (token) {
@@ -118,9 +122,9 @@ export default function App() {
       <main className="main-canvas" key={tab}>
         <div className="view-enter">
         {tab === "dashboard" && <DashboardView setError={setError} />}
-        {tab === "schedule" && <ScheduleView courses={courses} students={students} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} />}
-        {tab === "students" && <StudentsView students={students} onRefresh={fetchAll} setError={setError} />}
-        {tab === "teachers" && <TeachersView teachers={teachers} subjects={subjects} onRefresh={fetchAll} setError={setError} />}
+        {tab === "schedule" && <ScheduleView courses={courses} students={students} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} teacherFilter={scheduleTeacherFilter} onTeacherFilterChange={setScheduleTeacherFilter} studentFilter={scheduleStudentFilter} onStudentFilterChange={setScheduleStudentFilter} />}
+        {tab === "students" && <StudentsView students={students} onRefresh={fetchAll} setError={setError} onViewSchedule={(id) => { setScheduleStudentFilter(id); setScheduleTeacherFilter(0); setTab("schedule"); }} />}
+        {tab === "teachers" && <TeachersView teachers={teachers} subjects={subjects} onRefresh={fetchAll} setError={setError} onViewSchedule={(id) => { setScheduleTeacherFilter(id); setScheduleStudentFilter(0); setTab("schedule"); }} />}
         {tab === "courses" && <CoursesView courses={courses} students={students} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} />}
         {tab === "attendance" && <AttendanceView courses={courses} students={students} onRefresh={fetchAll} setError={setError} />}
         {tab === "adjustments" && <AdjustmentsView courses={courses} subjects={subjects} teachers={teachers} onRefresh={fetchAll} setError={setError} />}
@@ -134,12 +138,31 @@ export default function App() {
   );
 }
 
-function ScheduleView({ courses, students, subjects, teachers, onRefresh, setError }: {
+function ScheduleView({ courses, students, subjects, teachers, onRefresh, setError, teacherFilter, onTeacherFilterChange, studentFilter, onStudentFilterChange }: {
   courses: Course[]; students: Student[]; subjects: Subject[]; teachers: Teacher[];
   onRefresh: () => void; setError: (e: string) => void;
+  teacherFilter: number; onTeacherFilterChange: (id: number) => void;
+  studentFilter: number; onStudentFilterChange: (id: number) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Course | null>(null);
+  const [subjectFilter, setSubjectFilter] = useState(0);
+
+  const isFiltered = teacherFilter > 0 || studentFilter > 0 || subjectFilter > 0;
+  const filteredCourses = courses.filter((c) =>
+    (!teacherFilter || c.teacher_id === teacherFilter) &&
+    (!studentFilter || (c.students || []).some((s) => s.id === studentFilter)) &&
+    (!subjectFilter || c.subject_id === subjectFilter)
+  );
+  const filteredIds = new Set(filteredCourses.map((c) => c.id));
+  const selectedTeacher = teachers.find((t) => t.id === teacherFilter);
+  const selectedStudent = students.find((s) => s.id === studentFilter);
+  const personCourses = teacherFilter
+    ? courses.filter((c) => c.teacher_id === teacherFilter)
+    : studentFilter
+      ? courses.filter((c) => (c.students || []).some((s) => s.id === studentFilter))
+      : [];
+  const perDay = DAY_NAMES.map((_, i) => personCourses.filter((c) => c.day_of_week === i).length);
 
   return (
     <div className="view-page p-6">
@@ -149,6 +172,66 @@ function ScheduleView({ courses, students, subjects, teachers, onRefresh, setErr
           <Plus className="w-4 h-4" /> 添加课程
         </button>
       </div>
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <div className="min-w-[200px] max-w-[280px]">
+          <SearchPicker
+            items={teachers}
+            value={teacherFilter}
+            onChange={(id) => { onTeacherFilterChange(id); if (id) onStudentFilterChange(0); }}
+            placeholder="搜索教师查看课表..."
+            includeAll
+            allLabel="全部教师"
+            display={(t) => `${t.name}（${t.subjects?.map((s) => s.name).join("、") || "未设置科目"}）`}
+            filter={(t, q) =>
+              t.name.toLowerCase().includes(q) ||
+              (t.phone || "").includes(q) ||
+              (t.subjects || []).some((s) => s.name.toLowerCase().includes(q))
+            }
+          />
+        </div>
+        <div className="min-w-[200px] max-w-[280px]">
+          <SearchPicker
+            items={students}
+            value={studentFilter}
+            onChange={(id) => { onStudentFilterChange(id); if (id) onTeacherFilterChange(0); }}
+            placeholder="搜索学生查看课表..."
+            includeAll
+            allLabel="全部学生"
+            display={(s) => `${s.name}（${s.grade_level}${s.grade}）`}
+            filter={(s, q) =>
+              s.name.toLowerCase().includes(q) ||
+              s.grade_level.toLowerCase().includes(q) ||
+              s.grade.toLowerCase().includes(q) ||
+              (s.track || "").toLowerCase().includes(q)
+            }
+          />
+        </div>
+        <select value={subjectFilter} onChange={(e) => setSubjectFilter(Number(e.target.value))} className="field field-auto min-w-[110px]">
+          <option value={0}>全部科目</option>
+          {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        {isFiltered && (
+          <>
+            <button onClick={() => { onTeacherFilterChange(0); onStudentFilterChange(0); setSubjectFilter(0); }} className="ghost-btn !px-2 !py-1 text-xs">清除筛选</button>
+            <span className="text-[10px] text-slate-400">彩色为筛选结果，灰色为其他课程占用，空白即空闲时段</span>
+          </>
+        )}
+      </div>
+      {(selectedTeacher || selectedStudent) && (
+        <div className="panel p-3 mb-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="text-sm">
+            <span className="font-semibold text-slate-800">{selectedTeacher?.name || selectedStudent?.name}</span>
+            {selectedStudent && <span className="text-xs text-slate-400 ml-2">（{selectedStudent.grade_level}{selectedStudent.grade}{selectedStudent.track ? ` · ${selectedStudent.track}` : ""}）</span>}
+            <span className="text-xs text-slate-400 ml-2">本周共 {personCourses.length} 节课 · 空闲 {35 - personCourses.length}/35 个时段</span>
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {perDay.map((n, i) => n > 0 && (
+              <span key={i} className="status-chip px-1.5 py-0.5 text-[10px] status-class">{DAY_NAMES[i]} {n}节</span>
+            ))}
+            {personCourses.length === 0 && <span className="text-xs text-slate-400">本周暂无排课</span>}
+          </div>
+        </div>
+      )}
       <div className="table-panel">
         <div className="grid grid-cols-[80px_repeat(7,1fr)]">
           <div className="p-2 font-medium text-xs text-slate-400 table-head border-b border-r border-slate-100"></div>
@@ -162,14 +245,18 @@ function ScheduleView({ courses, students, subjects, teachers, onRefresh, setErr
                 const cellCourses = courses.filter((c) => c.day_of_week === dow && c.time_slot === si + 1);
                 return (
                   <div key={`${dow}-${si}`} className="border-r border-b border-slate-100 p-1 min-h-[56px] hover:bg-white/8 transition-colors">
-                    {cellCourses.map((c, ci) => (
-                      <div key={c.id}
-                        onClick={() => { setEditing(c); setShowForm(true); }}
-                        className={`course-chip px-2 py-0.5 text-xs cursor-pointer ${getCourseColor(ci)}`}>
-                        <div className="font-medium truncate">{c.subject?.name} {c.name}</div>
-                        <div className="text-slate-500 truncate">{c.teacher?.name} · {c.student_count}人</div>
-                      </div>
-                    ))}
+                    {cellCourses.map((c, ci) => {
+                      const match = filteredIds.has(c.id);
+                      return (
+                        <div key={c.id}
+                          onClick={() => { setEditing(c); setShowForm(true); }}
+                          title={isFiltered && !match ? `其他课程：${c.name}（${c.teacher?.name || ""}）` : undefined}
+                          className={`course-chip px-2 py-0.5 text-xs cursor-pointer ${getCourseColor(ci)} ${isFiltered && !match ? "opacity-35" : ""}`}>
+                          <div className="font-medium truncate">{c.subject?.name} {c.name}</div>
+                          <div className="text-slate-500 truncate">{c.teacher?.name} · {c.room?.name || ""}{c.student_count}人</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -177,6 +264,9 @@ function ScheduleView({ courses, students, subjects, teachers, onRefresh, setErr
           ))}
         </div>
       </div>
+      {isFiltered && filteredCourses.length === 0 && (
+        <div className="text-xs text-slate-400 py-4 text-center">当前筛选条件下暂无排课</div>
+      )}
       {showForm && (
         <CourseFormModal
           course={editing} students={students} subjects={subjects} teachers={teachers}
@@ -190,14 +280,21 @@ function ScheduleView({ courses, students, subjects, teachers, onRefresh, setErr
   );
 }
 
-function StudentsView({ students, onRefresh, setError }: {
+function StudentsView({ students, onRefresh, setError, onViewSchedule }: {
   students: Student[]; onRefresh: () => void; setError: (e: string) => void;
+  onViewSchedule: (studentId: number) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
   const [filterGrade, setFilterGrade] = useState("");
+  const [searchText, setSearchText] = useState("");
 
-  const filtered = filterGrade ? students.filter((s) => s.grade === filterGrade) : students;
+  const filtered = students.filter((s) => {
+    if (filterGrade && s.grade !== filterGrade) return false;
+    if (!searchText.trim()) return true;
+    const q = searchText.trim().toLowerCase();
+    return s.name.toLowerCase().includes(q) || (s.phone || "").includes(q) || s.grade_level.toLowerCase().includes(q);
+  });
   const allGrades = [...new Set(students.map((s) => s.grade))].sort();
 
   return (
@@ -214,18 +311,23 @@ function StudentsView({ students, onRefresh, setError }: {
           <button key={g} onClick={() => setFilterGrade(g)} className={`chip ${filterGrade === g ? "active" : ""}`}>{g}</button>
         ))}
       </div>
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="搜索姓名/电话/学段..." className="field field-auto min-w-[200px]" />
+        <span className="text-[10px] text-slate-400">{filtered.length}名学生</span>
+      </div>
       <div className="table-panel">
-      <div className="grid grid-cols-[1fr_70px_100px_70px_1fr_80px] gap-2 px-4 py-2 table-head border-b border-slate-100 text-xs font-medium text-slate-400">
+      <div className="grid grid-cols-[1fr_70px_100px_70px_1fr_100px] gap-2 px-4 py-2 table-head border-b border-slate-100 text-xs font-medium text-slate-400">
           <div>姓名</div><div>学段</div><div>年级</div><div>文理</div><div>电话</div><div></div>
         </div>
         {filtered.map((s) => (
-          <div key={s.id} className="grid grid-cols-[1fr_70px_100px_70px_1fr_80px] gap-2 px-4 py-2.5 border-b border-slate-100 text-sm items-center hover:bg-white/8 transition-colors">
+          <div key={s.id} className="grid grid-cols-[1fr_70px_100px_70px_1fr_100px] gap-2 px-4 py-2.5 border-b border-slate-100 text-sm items-center hover:bg-white/8 transition-colors">
             <div className="font-medium text-slate-800">{s.name}</div>
             <div className="text-xs text-slate-400">{s.grade_level}</div>
             <div className="text-xs text-slate-400">{s.grade}</div>
             <div className="text-xs text-slate-400">{s.track || "—"}</div>
             <div className="text-xs text-slate-400">{s.phone || "—"}</div>
             <div className="flex gap-1 justify-end">
+              <button onClick={() => onViewSchedule(s.id)} className="icon-btn" title="查看该学生课表"><Calendar className="w-3.5 h-3.5 text-indigo-400" /></button>
               <button onClick={() => { setEditing(s); setShowForm(true); }} className="icon-btn"><Edit3 className="w-3.5 h-3.5 text-slate-400" /></button>
               <button onClick={async () => { try { await api.students.delete(s.id); onRefresh(); } catch (e: any) { setError(e.message); } }} className="icon-btn"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
             </div>
@@ -249,6 +351,18 @@ function CoursesView({ courses, students, subjects, teachers, onRefresh, setErro
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Course | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [dayFilter, setDayFilter] = useState(-1);
+
+  const filtered = courses.filter((c) => {
+    if (dayFilter >= 0 && c.day_of_week !== dayFilter) return false;
+    if (!searchText.trim()) return true;
+    const q = searchText.trim().toLowerCase();
+    return (c.name || "").toLowerCase().includes(q) ||
+      (c.subject?.name || "").toLowerCase().includes(q) ||
+      (c.teacher?.name || "").toLowerCase().includes(q) ||
+      (c.room?.name || "").toLowerCase().includes(q);
+  });
 
   return (
     <div className="view-page p-6">
@@ -258,11 +372,19 @@ function CoursesView({ courses, students, subjects, teachers, onRefresh, setErro
           <Plus className="w-4 h-4" /> 添加课程
         </button>
       </div>
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="搜索课程/科目/教师/教室..." className="field field-auto min-w-[220px]" />
+        <select value={dayFilter} onChange={(e) => setDayFilter(Number(e.target.value))} className="field field-auto">
+          <option value={-1}>全部星期</option>
+          {DAY_NAMES.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        </select>
+        <span className="text-[10px] text-slate-400">{filtered.length}门课程</span>
+      </div>
       <div className="table-panel">
         <div className="grid grid-cols-[1fr_80px_80px_80px_100px_80px_100px_80px] gap-2 px-4 py-2 table-head border-b border-slate-100 text-xs font-medium text-slate-400">
           <div>课程名</div><div>科目</div><div>教师</div><div>教室</div><div>时间</div><div>类型</div><div>学生</div><div></div>
         </div>
-        {courses.map((c) => (
+        {filtered.map((c) => (
           <div key={c.id} className="grid grid-cols-[1fr_80px_80px_80px_100px_80px_100px_80px] gap-2 px-4 py-2.5 border-b border-slate-100 text-sm items-center hover:bg-white/8 transition-colors">
             <div className="font-medium text-gray-800 truncate">{c.name}</div>
             <div className="text-xs text-slate-400">{c.subject?.name || "—"}</div>
@@ -279,6 +401,7 @@ function CoursesView({ courses, students, subjects, teachers, onRefresh, setErro
             </div>
           </div>
         ))}
+        {filtered.length === 0 && <div className="text-xs text-slate-400 py-8 text-center">无匹配课程</div>}
       </div>
       {showForm && (
         <CourseFormModal
@@ -495,11 +618,21 @@ function CourseFormModal({ course, students, subjects, teachers, courses: _cours
   );
 }
 
-function TeachersView({ teachers, subjects, onRefresh, setError }: {
+function TeachersView({ teachers, subjects, onRefresh, setError, onViewSchedule }: {
   teachers: Teacher[]; subjects: Subject[]; onRefresh: () => void; setError: (e: string) => void;
+  onViewSchedule: (teacherId: number) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Teacher | null>(null);
+  const [searchText, setSearchText] = useState("");
+
+  const filtered = teachers.filter((t) => {
+    if (!searchText.trim()) return true;
+    const q = searchText.trim().toLowerCase();
+    return t.name.toLowerCase().includes(q) ||
+      (t.phone || "").includes(q) ||
+      (t.subjects || []).some((s) => s.name.toLowerCase().includes(q));
+  });
 
   return (
     <div className="view-page p-6">
@@ -509,22 +642,27 @@ function TeachersView({ teachers, subjects, onRefresh, setError }: {
           <Plus className="w-4 h-4" /> 添加教师
         </button>
       </div>
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="搜索姓名/电话/任教学科..." className="field field-auto min-w-[220px]" />
+        <span className="text-[10px] text-slate-400">{filtered.length}名教师</span>
+      </div>
       <div className="table-panel">
-        <div className="grid grid-cols-[1fr_120px_1fr_80px] gap-2 px-4 py-2 table-head border-b border-slate-100 text-xs font-medium text-slate-400">
-          <div>姓名</div><div>电话</div><div>教授科目</div><div></div>
+        <div className="grid grid-cols-[1fr_120px_1fr_100px] gap-2 px-4 py-2 table-head border-b border-slate-100 text-xs font-medium text-slate-400">
+          <div>姓名</div><div>电话</div><div>教授科目</div><div className="text-right">操作</div>
         </div>
-        {teachers.map((t) => (
-          <div key={t.id} className="grid grid-cols-[1fr_120px_1fr_80px] gap-2 px-4 py-2.5 border-b border-slate-100 text-sm items-center hover:bg-white/8 transition-colors">
+        {filtered.map((t) => (
+          <div key={t.id} className="grid grid-cols-[1fr_120px_1fr_100px] gap-2 px-4 py-2.5 border-b border-slate-100 text-sm items-center hover:bg-white/8 transition-colors">
             <div className="font-medium text-slate-800">{t.name}</div>
             <div className="text-xs text-slate-400">{t.phone || "—"}</div>
             <div className="text-xs text-slate-400">{t.subjects?.map((s) => s.name).join("、") || "—"}</div>
             <div className="flex gap-1 justify-end">
+              <button onClick={() => onViewSchedule(t.id)} className="icon-btn" title="查看该教师课表"><Calendar className="w-3.5 h-3.5 text-indigo-400" /></button>
               <button onClick={() => { setEditing(t); setShowForm(true); }} className="icon-btn"><Edit3 className="w-3.5 h-3.5 text-slate-400" /></button>
               <button onClick={async () => { try { await api.teachers.delete(t.id); onRefresh(); } catch (e: any) { setError(e.message); } }} className="icon-btn"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
             </div>
           </div>
         ))}
-        {teachers.length === 0 && <div className="text-sm text-gray-400 text-center py-8 col-span-4">暂无教师，请添加</div>}
+        {filtered.length === 0 && <div className="text-sm text-gray-400 text-center py-8 col-span-4">无匹配教师</div>}
       </div>
       {showForm && (
         <TeacherFormModal
@@ -667,7 +805,7 @@ function AttendanceView({ courses, students: _students, onRefresh: _onRefresh, s
   courses: Course[]; students: Student[]; onRefresh: () => void; setError: (e: string) => void;
 }) {
   const [courseId, setCourseId] = useState<number>(0);
-  const [dateVal, setDateVal] = useState(new Date().toISOString().split("T")[0]);
+  const [dateVal, setDateVal] = useState(todayLocal());
   const [records, setRecords] = useState<Record<number, { status: string; notes: string }>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -819,6 +957,11 @@ function AdjustmentsView({ courses, subjects: _subjects, teachers: _teachers, on
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ScheduleAdjustment | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState("");
+
+  const filtered = adjustments.filter((a) =>
+    !searchText.trim() || (a.course?.name || "").toLowerCase().includes(searchText.trim().toLowerCase())
+  );
 
   useEffect(() => {
     load();
@@ -838,16 +981,20 @@ function AdjustmentsView({ courses, subjects: _subjects, teachers: _teachers, on
           <Plus className="w-4 h-4" /> 添加调整
         </button>
       </div>
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="搜索课程名称..." className="field field-auto min-w-[200px]" />
+        <span className="text-[10px] text-slate-400">{filtered.length}条记录</span>
+      </div>
       {loading ? (
         <div className="text-sm text-gray-400 py-8 text-center panel">加载中...</div>
-      ) : adjustments.length === 0 ? (
-        <div className="text-sm text-gray-400 py-8 text-center panel">暂无调课记录</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-sm text-gray-400 py-8 text-center panel">{adjustments.length === 0 ? "暂无调课记录" : "无匹配记录"}</div>
       ) : (
         <div className="table-panel">
           <div className="grid grid-cols-[1fr_100px_100px_100px_100px_80px_80px] gap-2 px-4 py-2 table-head border-b text-xs font-medium text-gray-500">
             <div>课程</div><div>调整日期</div><div>原时间</div><div>新时间</div><div>类型</div><div>原因</div><div></div>
           </div>
-          {adjustments.map((adj) => (
+          {filtered.map((adj) => (
             <div key={adj.id} className="grid grid-cols-[1fr_100px_100px_100px_100px_80px_80px] gap-2 px-4 py-2.5 border-b text-sm items-center hover:bg-white/8">
               <div className="font-medium text-gray-800 truncate">{adj.course?.name || "—"}</div>
               <div className="text-xs text-slate-400">{adj.adjustment_date}</div>
@@ -883,7 +1030,7 @@ function AdjustmentFormModal({ adjustment, courses, onClose, onSave, setError }:
   onClose: () => void; onSave: () => void; setError: (e: string) => void;
 }) {
   const [courseId, setCourseId] = useState(adjustment?.course_id || 0);
-  const [adjustmentDate, setAdjustmentDate] = useState(adjustment?.adjustment_date || new Date().toISOString().split("T")[0]);
+  const [adjustmentDate, setAdjustmentDate] = useState(adjustment?.adjustment_date || todayLocal());
   const [adjustmentType, setAdjustmentType] = useState(adjustment?.adjustment_type || "rescheduled");
   const [newDay, setNewDay] = useState(adjustment?.new_day ?? 0);
   const [newSlot, setNewSlot] = useState(adjustment?.new_slot ?? 1);
