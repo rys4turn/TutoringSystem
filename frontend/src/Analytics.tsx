@@ -4,36 +4,29 @@ import { api } from "./api";
 import { Modal } from "./Modal";
 import type { Student, Subject, Course, ScoreRecord, ScoreForm, ScoreAnalysis, RadarData, SettingsData, AiReport, AdmissionLine, RoadmapData, AiInsightResult } from "./types";
 import { EXAM_TYPE_LABELS } from "./types";
+import { SearchPicker } from "./SearchPicker";
+import { todayLocal } from "./dates";
 
 // === Searchable student picker ===
-export function StudentPicker({ students, value, onChange, placeholder }: {
-  students: Student[]; value: number; onChange: (id: number) => void; placeholder?: string;
+export function StudentPicker({ students, value, onChange, placeholder, includeAll }: {
+  students: Student[]; value: number; onChange: (id: number) => void; placeholder?: string; includeAll?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const selected = students.find(s => s.id === value);
-  const filtered = query ? students.filter(s => s.name.includes(query) || s.grade.includes(query) || s.grade_level.includes(query)) : students;
   return (
-    <div className="relative" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false); }}>
-      <input
-        value={open ? query : (query || (selected ? `${selected.name}（${selected.grade}）` : ""))}
-        onFocus={() => { setOpen(true); setQuery(""); }}
-        onChange={e => { setQuery(e.target.value); setOpen(true); }}
-        placeholder={placeholder || "输入姓名搜索学生..."}
-        className="field"
-      />
-      {open && (
-        <div className="absolute z-30 w-full picker-dropdown max-h-48 overflow-auto mt-1">
-          {filtered.map(s => (
-            <button key={s.id} type="button" onClick={() => { onChange(s.id); setOpen(false); setQuery(""); }}
-              className="w-full text-left px-3 py-1.5 text-xs text-white/90 hover:bg-white/10 transition-colors">
-              {s.name} <span className="text-white/55">（{s.grade_level}{s.grade}）</span>
-            </button>
-          ))}
-          {filtered.length === 0 && <div className="px-3 py-2 text-xs text-white/50">无匹配学生</div>}
-        </div>
-      )}
-    </div>
+    <SearchPicker
+      items={students}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder || "输入姓名搜索学生..."}
+      includeAll={includeAll}
+      allLabel="全部学生"
+      display={(s) => `${s.name}（${s.grade_level}${s.grade}）`}
+      filter={(s, q) =>
+        s.name.toLowerCase().includes(q) ||
+        s.grade_level.toLowerCase().includes(q) ||
+        s.grade.toLowerCase().includes(q) ||
+        (s.track || "").toLowerCase().includes(q)
+      }
+    />
   );
 }
 
@@ -81,6 +74,13 @@ export function AnalysisView({ students, setError }: {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const radarSeq = useRef(0);
+  const studentInit = useRef(selectedStudent !== 0);
+  useEffect(() => {
+    if (!studentInit.current && students.length) {
+      studentInit.current = true;
+      setSelectedStudent(students[0].id);
+    }
+  }, [students, selectedStudent]);
   useEffect(() => { if (subTab === "scores") loadScore(); if (subTab === "radar") loadRadar(); if (subTab === "roadmap") loadRoadmap(); }, [subTab, selectedStudent]);
   const loadScore = async () => { setLoading(true); setScoreData(null); try { setScoreData(await api.analysis.scores({ student_id: selectedStudent || undefined })); } catch(e:any){setError(e.message)} finally{setLoading(false)} };
   const loadRadar = async () => { if(!selectedStudent)return; const seq = ++radarSeq.current; setLoading(true); setRadarData(null); try { const data = await api.analysis.radar(selectedStudent); if (seq === radarSeq.current) setRadarData(data); } catch(e:any){ if (seq === radarSeq.current) setError(e.message); } finally{ if (seq === radarSeq.current) setLoading(false); } };
@@ -90,8 +90,13 @@ export function AnalysisView({ students, setError }: {
     <div className="view-page p-6">
       <div className="flex justify-between mb-4"><h2 className="text-base font-semibold text-gray-800">数据分析</h2><button onClick={()=>setShowSettings(true)} className="ghost-btn !px-2 !py-1 text-xs"><Settings className="w-3.5 h-3.5" /> API设置</button></div>
       <div className="flex gap-2 mb-4">{tabs.map(t=><button key={t.id} onClick={()=>setSubTab(t.id)} className={`chip ${subTab===t.id?"active":""}`}>{t.label}</button>)}</div>
-      {subTab==="scores" && <select value={selectedStudent} onChange={e=>setSelectedStudent(+e.target.value)} className="field field-auto min-w-[120px] mb-3"><option value={0}>全部学生</option>{students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-      {(subTab==="scores"||subTab==="radar"||subTab==="roadmap"||subTab==="ai") && (
+      {subTab==="scores" && (
+        <div className="flex gap-2 mb-3 items-center flex-wrap">
+          <div className="max-w-[260px] min-w-[180px]"><StudentPicker students={students} value={selectedStudent} onChange={setSelectedStudent} includeAll placeholder="搜索/选择学生..." /></div>
+          <span className="text-xs text-slate-400">选择学生查看个人成绩分析；选择“全部学生”查看整体统计</span>
+        </div>
+      )}
+      {(subTab==="radar"||subTab==="roadmap"||subTab==="ai") && (
         <div className="flex gap-2 mb-3 flex-wrap items-center">
           <input value={studentSearch} onChange={e=>setStudentSearch(e.target.value)} placeholder="搜索学生..." className="field field-auto min-w-[140px]" />
           <select value={stuGradeLevel} onChange={e=>{setStuGradeLevel(e.target.value);setStuGrade("")}} className="field field-auto"><option value="">全部学段</option><option value="初中">初中</option><option value="高中">高中</option></select>
@@ -496,7 +501,7 @@ export function ScoresView({ students, subjects, courses, setError }: {
         <button onClick={() => { setEditing(null); setShowForm(true); }} className="primary-btn"><FileText className="w-4 h-4" /> 添加成绩</button>
       </div>
       <div className="flex gap-3 mb-3 flex-wrap">
-        <div className="min-w-[150px]"><StudentPicker students={[{id:0,name:"全部学生",grade:"",grade_level:""} as any,...students]} value={filterStudent} onChange={setFilterStudent} placeholder="搜索学生..." /></div>
+        <div className="min-w-[150px]"><StudentPicker students={students} value={filterStudent} onChange={setFilterStudent} includeAll placeholder="搜索学生..." /></div>
         <select value={filterSubject} onChange={e=>setFilterSubject(+e.target.value)} className="field field-auto min-w-[100px]"><option value={0}>全部科目</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <select value={filterType} onChange={e=>setFilterType(e.target.value)} className="field field-auto min-w-[100px]"><option value="">全部类型</option><option value="school_exam">学校考试</option><option value="quiz">小测验</option></select>
       </div>
@@ -526,7 +531,7 @@ function ScoreFormModal({ record, students, subjects, courses, onClose, onSave, 
   const [examName, setExamName] = useState(record?.exam_name||"");
   const [score, setScore] = useState(record?.score??0);
   const [maxScore, setMaxScore] = useState(record?.max_score??100);
-  const [examDate, setExamDate] = useState(record?.exam_date||new Date().toISOString().split("T")[0]);
+  const [examDate, setExamDate] = useState(record?.exam_date||todayLocal());
   const [notes, setNotes] = useState(record?.notes||"");
   const [saving, setSaving] = useState(false);
   const handle = async (e: FormEvent) => { e.preventDefault(); setSaving(true); try { const d: ScoreForm = { student_id: studentId, subject_id: subjectId, course_id: (examType==="quiz"||examType==="entry_test")?courseId||null:null, exam_type: examType, exam_name: examName, score, max_score: maxScore, exam_date: examDate, notes }; if(record) await api.scores.update(record.id,d); else await api.scores.create(d); onSave(); } catch(e:any){setError(e.message)} finally{setSaving(false)} };

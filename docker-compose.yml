@@ -4,6 +4,8 @@ services:
   tutoring:
     build: .
     container_name: tutoring-system
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "5000:5000"
     volumes:
